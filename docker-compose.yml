@@ -1,0 +1,74 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: sentinelkarma-mosquitto-1
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h localhost -t '$$SYS/broker/uptime' -C 1 -W 3 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  agent:
+    build: ./agent-python
+    image: sentinelkarma-agent
+    container_name: sentinel-agent
+    restart: unless-stopped
+    environment:
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
+      MQTT_TOPIC: sentinel/diag
+      LOG_PATH: /data/rpc.jsonl
+      REGION: eu-central
+      ASN: "64512"
+      WINDOW_MS: "250"
+      Z_THRESHOLD: "3.0"
+      METHODS_HEAVY: getProgramAccounts,getLogs
+      SALT: change-me
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    # (opțional) healthcheck simplu - verifică TCP către broker
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(2); s.connect(('mosquitto',1883)); s.close()"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+      
+  generator:
+    build: ./agent-python
+    container_name: traffic-gen
+    command: ["python","-m","tools.generator","--log","/data/rpc.jsonl","--rate","600","--burst","getProgramAccounts","--err","0.10","--burst_secs","15"]
+    volumes:
+      - ./data:/data
+    depends_on: [agent]
+
+  saver:
+    build: ./agent-python
+    image: sentinelkarma-saver
+    container_name: log-saver
+    command: ["python","-m","tools.saver"]
+    environment:
+      MQTT_URL: mqtt://mosquitto:1883
+      NORMAL_DIR: /data/logs_normal
+      MALICIOUS_DIR: /data/malicious_logs
+
+      # rotații
+      NORMAL_ROTATE_SECS: "1800"         # 30 min
+      MALICIOUS_ROTATE_SECS: "180"       # 3 min
+
+      # retenție
+      NORMAL_TTL_MINS: "120"             # 2 ore (poți pune "60" pt 1 oră sau "30" pt jumate)
+      MALICIOUS_TTL_MINS: "0"            # 0 = nu șterge automat
+
+      Z_THRESHOLD: "3.0"
+    volumes:
+      - ./data/logs_normal:/data/logs_normal
+      - ./data/malicious_logs:/data/malicious_logs
+    depends_on:
+      mosquitto:
+        condition: service_healthy
