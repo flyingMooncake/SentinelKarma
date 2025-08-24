@@ -9,6 +9,7 @@ parser.add_argument("--err", type=float, default=0.02)  # error rate în burst
 parser.add_argument("--baseline_lat", type=float, default=90)     # <- FIX
 parser.add_argument("--burst_lat", type=float, default=260)       # <- FIX
 parser.add_argument("--burst_secs", type=int, default=20)
+parser.add_argument("--stdout", action="store_true", help="also emit JSON events to stdout for tracing")
 args = parser.parse_args()
 
 methods = ["getProgramAccounts", "getLogs", "getBalance", "getBlock"]
@@ -30,6 +31,8 @@ def one_event(burst=False):
         "method": m,
         "lat_ms": max(1, lat),
         "status": status,
+        "burst": bool(burst),
+        "src": "generator"
     }
 
 with open(args.log, "a", buffering=1) as f:
@@ -39,5 +42,8 @@ with open(args.log, "a", buffering=1) as f:
         burst = (int(time.time() - t0) // (args.burst_secs * 2)) % 2 == 1
         for _ in range(args.rate):
             ev = one_event(burst)
-            f.write(json.dumps(ev) + "\n")
+            line = json.dumps(ev, separators=(",", ":"))
+            f.write(line + "\n")
+            if args.stdout:
+                print(line, flush=True)
         time.sleep(1.0)

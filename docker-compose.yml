@@ -6,6 +6,7 @@ services:
       - "1883:1883"
     volumes:
       - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./data/mosquitto_logs:/mosquitto/log
     healthcheck:
       test: ["CMD-SHELL", "mosquitto_sub -h localhost -t '$$SYS/broker/uptime' -C 1 -W 3 || exit 1"]
       interval: 5s
@@ -28,6 +29,8 @@ services:
       Z_THRESHOLD: "3.0"
       METHODS_HEAVY: getProgramAccounts,getLogs
       SALT: change-me
+    volumes:
+      - ./data:/data
     depends_on:
       mosquitto:
         condition: service_healthy
@@ -42,9 +45,10 @@ services:
   generator:
     build: ./agent-python
     container_name: traffic-gen
-    command: ["python","-m","tools.generator","--log","/data/rpc.jsonl","--rate","600","--burst","getProgramAccounts","--err","0.10","--burst_secs","15"]
+    command: ["python","-m","tools.generator","--log","/data/rpc.jsonl","--rate","600","--burst","getProgramAccounts","--err","0.10","--burst_secs","15","--stdout"]
     volumes:
       - ./data:/data
+      - ./data/generator_out:/data/generator_out
     depends_on: [agent]
 
   saver:

@@ -14,6 +14,13 @@ WINDOW_MS   = int(os.getenv("WINDOW_MS", "250"))
 Z_THRESHOLD = float(os.getenv("Z_THRESHOLD", "3.0"))
 SALT        = os.getenv("SALT", "change-me")  # pt. hash IP (no PII)
 METHODS_HEAVY = set(os.getenv("METHODS_HEAVY", "getProgramAccounts,getLogs").split(","))
+# Praguri suplimentare pentru emiterea de diag (absolut + z)
+ERR_THR     = float(os.getenv("ERR_THR", "0.05"))
+P95_THR     = float(os.getenv("P95_THR", "250"))
+ZLAT_THR    = float(os.getenv("ZLAT_THR", os.getenv("Z_THRESHOLD", "3.0")))
+ZERR_THR    = float(os.getenv("ZERR_THR", os.getenv("Z_THRESHOLD", "3.0")))
+# Opțional: rulează saver-ul în același proces (monitor "all-in-one")
+EMBED_SAVER = os.getenv("EMBED_SAVER", "0").lower() in ("1","true","yes","on")
 
 # ==== Parse MQTT_URL -> host/port (fix pentru aiomqtt.Client) ====
 def parse_mqtt(url: str):
@@ -123,6 +130,14 @@ async def run_agent():
 
                 # pornesc heartbeat
                 hb = asyncio.create_task(heartbeat_task(pub))
+                saver_task = None
+                if EMBED_SAVER:
+                    try:
+                        from tools import saver as _saver
+                        saver_task = asyncio.create_task(_saver.run())
+                        print("[agent] EMBED_SAVER: started saver task")
+                    except Exception as e:
+                        print(f"[agent] failed to start embedded saver: {e}", file=sys.stderr)
 
                 # loop principal: tail log + alerte
                 async for raw in tail_log(LOG_PATH):
@@ -153,7 +168,11 @@ async def run_agent():
                         ts = int(now)
                         for m, ws in list(windows.items()):
                             p95, err_rate, z_lat, z_err = ws.snapshot()
-                            if z_lat >= Z_THRESHOLD or z_err >= Z_THRESHOLD:
+                            trigger = (
+                                z_lat >= ZLAT_THR or z_err >= ZERR_THR or
+                                p95 >= P95_THR or err_rate >= ERR_THR
+                            )
+                            if trigger:
                                 msg = {
                                     "ts": ts,
                                     "window_ms": WINDOW_MS,
@@ -172,6 +191,8 @@ async def run_agent():
                         last_flush = now
 
                 hb.cancel()
+                if saver_task:
+                    saver_task.cancel()
         except Exception as e:
             # de ex: brokerul nu e gata încă
             print(f"[agent] MQTT loop error: {e}. reconnect in 1s...", file=sys.stderr)

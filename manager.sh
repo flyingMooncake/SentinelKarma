@@ -21,6 +21,7 @@ OVER_BASE_LAT="${OVER_BASE_LAT:-220}"
 OVER_BURST_LAT="${OVER_BURST_LAT:-480}"
 OVER_SECS="${OVER_SECS:-90}"
 OVER_METHODS="${OVER_METHODS:-getProgramAccounts getLogs}"
+OVER_PARALLEL="${OVER_PARALLEL:-1}"
 
 info(){ printf "\033[1;34m[INFO]\033[0m %s\n" "$*"; }
 warn(){ printf "\033[1;33m[WARN]\033[0m %s\n" "$*"; }
@@ -69,6 +70,7 @@ check_missing(){
   [[ -n "$DCCMD" ]] || missing+=(docker-compose-plugin)
   need_bin jq || missing+=(jq)
   need_bin tmux || missing+=(tmux)
+  need_bin watch || missing+=(procps)
   if [[ ! -f docker-compose.yml ]]; then
     warn "docker-compose.yml lipseste in $ROOT (managerul NU modifica repo-ul)."
   fi
@@ -83,7 +85,7 @@ do_install_libs(){
   need_sudo
   info "Installing base tools (jq, tmux, etc)…"
   sudo apt-get update -y
-  sudo apt-get install -y ca-certificates curl gnupg lsb-release jq tmux
+  sudo apt-get install -y ca-certificates curl gnupg lsb-release jq tmux procps
   info "Done."
 }
 
@@ -213,33 +215,20 @@ do_test(){
 do_monitor(){
   [[ -f docker-compose.yml ]] || die "Missing docker-compose.yml"
   [[ -n "$DCCMD" ]] || die "Compose not available. Run: $0 --docker"
-  ensure_dirs
   info "Ensuring services are up…"
-  dc up -d mosquitto agent generator saver
-  if command -v gnome-terminal >/dev/null 2>&1; then
-    info "Opening GNOME Terminal dashboard"
-    gnome-terminal \
-      --window --title="SK: ps" -- bash -lc "cd '$ROOT'; watch -n1 $DCCMD ps; exec bash" \
-      --tab --title="SK: MQTT sub" -- bash -lc "cd '$ROOT'; $DCCMD exec mosquitto mosquitto_sub -h localhost -t 'sentinel/#' -v; exec bash" \
-      --tab --title="SK: mosquitto logs" -- bash -lc "cd '$ROOT'; $DCCMD logs -f mosquitto; exec bash" \
-      --tab --title="SK: agent logs" -- bash -lc "cd '$ROOT'; $DCCMD logs -f agent; exec bash" \
-      --tab --title="SK: generator logs" -- bash -lc "cd '$ROOT'; $DCCMD logs -f generator; exec bash" \
-      --tab --title="SK: saver logs" -- bash -lc "cd '$ROOT'; $DCCMD logs -f saver; exec bash" \
-      >/dev/null 2>&1 & disown || true
+  if [[ "${MON_ALL:-0}" -eq 1 ]]; then
+    dc up -d mosquitto agent saver generator
   else
-    warn "gnome-terminal not found; using tmux"
-    need_bin tmux || die "tmux not installed. Run: $0 --install"
-    local S=skmon
-    tmux kill-session -t "$S" 2>/dev/null || true
-    tmux new-session -d -s "$S" -n mon "cd '$ROOT'; watch -n1 $DCCMD ps"
-    tmux split-window -h -t "$S":0 "cd '$ROOT'; $DCCMD exec mosquitto mosquitto_sub -h localhost -t 'sentinel/#' -v"
-    tmux split-window -v -t "$S":0.0 "cd '$ROOT'; $DCCMD logs -f mosquitto"
-    tmux split-window -v -t "$S":0.2 "cd '$ROOT'; $DCCMD logs -f agent"
-    tmux split-window -v -t "$S":0.3 "cd '$ROOT'; $DCCMD logs -f generator"
-    tmux split-window -v -t "$S":0.4 "cd '$ROOT'; $DCCMD logs -f saver"
-    tmux select-layout -t "$S":0 tiled
-    tmux attach -t "$S"
+    dc up -d mosquitto agent saver
   fi
+  if [[ "${MUTE:-0}" -eq 1 ]]; then
+    info "Monitor started in background. Structured feed available via: $DCCMD exec -T agent python -m tools.monitor"
+    return 0
+  fi
+  local vflag="0"
+  [[ "${VERBOSE:-0}" -eq 1 ]] && vflag="1"
+  info "Streaming structured MQTT feed (attacks-only by default; use --verbose for all)…"
+  MONITOR_VERBOSE="$vflag" $DCCMD exec -T agent python -m tools.monitor
 }
 
 do_stop(){ info "Stopping stack…"; dc down --remove-orphans || true; }
@@ -275,20 +264,72 @@ do_overburst(){
   info "Ensuring services are up (mosquitto+agent+generator+saver)…"
   dc up -d mosquitto agent generator saver
 
-  info "OVERBURST: ${OVER_SECS}s per method @ rate=${OVER_RATE}, err=${OVER_ERR}, base_lat=${OVER_BASE_LAT}, burst_lat=${OVER_BURST_LAT}"
-  for m in $OVER_METHODS; do
+  # quick sanity check that generator has the module
+  if ! $DCCMD exec -T generator python -c "import tools.generator" >/dev/null 2>&1; then
+    die "generator container missing tools.generator module"
+  fi
+
+  # normalize method list and compute collection window
+  local methods_norm
+  methods_norm="${OVER_METHODS//,/ }"
+  local mcount=0
+  if [[ -n "${methods_norm// }" ]]; then
+    # shellcheck disable=SC2046
+    set -- $methods_norm
+    mcount=$#
+  fi
+  local collect_secs
+  if [[ "${OVER_PARALLEL}" -eq 1 ]]; then
+    collect_secs=$(( OVER_SECS + 15 ))
+  else
+    collect_secs=$(( mcount * OVER_SECS + 15 ))
+  fi
+
+  # start a temporary malicious collector for the duration
+  local ts out
+  ts="$(date +%Y%m%d_%H%M%S)"
+  out="data/malicious_logs/overburst_${ts}.jsonl"
+  info "Collecting malicious diagnostics for ~${collect_secs}s -> $out"
+  touch "$out" || true
+  (
+    timeout "${collect_secs}s" bash -lc "$DCCMD exec -T mosquitto mosquitto_sub -h localhost -t 'sentinel/#' -v" \
+      | cut -d' ' -f2- \
+      | jq -c --argjson et "$ERR_THR" --argjson zl "$ZLAT_THR" --argjson ze "$ZERR_THR" --argjson p "$P95_THR" \
+          'select((.metrics.err_rate // 0) >= $et or (.z.lat // 0) >= $zl or (.z.err // 0) >= $ze or (.metrics.p95 // 0) >= $p)' \
+      | stdbuf -oL tee -a "$out" >/dev/null
+  ) & COLLECT_PID=$!
+
+  info "OVERBURST: ${OVER_SECS}s per method @ rate=${OVER_RATE}, err=${OVER_ERR}, base_lat=${OVER_BASE_LAT}, burst_lat=${OVER_BURST_LAT}; parallel=${OVER_PARALLEL}"
+  for m in $methods_norm; do
     info "Bursting method: $m"
-    $DCCMD exec -T -d generator sh -lc \
-      "python -m tools.generator --log /data/rpc.jsonl \
-       --rate $OVER_RATE --burst '$m' \
-       --err $OVER_ERR --baseline_lat $OVER_BASE_LAT --burst_lat $OVER_BURST_LAT \
-       --burst_secs $OVER_SECS"
+    if [[ "${OVER_PARALLEL}" -eq 1 ]]; then
+      # Background inside the container for broad compatibility (no -d needed)
+      $DCCMD exec -T generator sh -lc \
+        "nohup python -m tools.generator --log /data/rpc.jsonl \
+         --rate $OVER_RATE --burst '$m' \
+         --err $OVER_ERR --baseline_lat $OVER_BASE_LAT --burst_lat $OVER_BURST_LAT \
+         --burst_secs $OVER_SECS > /tmp/overburst_${m}.log 2>&1 &"
+    else
+      # Sequential: wait for each burst to complete
+      $DCCMD exec -T generator sh -lc \
+        "python -m tools.generator --log /data/rpc.jsonl \
+         --rate $OVER_RATE --burst '$m' \
+         --err $OVER_ERR --baseline_lat $OVER_BASE_LAT --burst_lat $OVER_BURST_LAT \
+         --burst_secs $OVER_SECS"
+    fi
   done
-  info "Overburst done. Check: data/malicious_logs/  (and data/logs_normal/)."
+
+  if [[ "${OVER_PARALLEL}" -eq 1 ]]; then
+    info "Overburst launched in background. Collector will stop automatically in ~${collect_secs}s. Tail: docker compose logs -f generator; output file: $out"
+  else
+    info "Waiting for collector to finish (~${collect_secs}s total)…"
+    wait $COLLECT_PID || true
+    info "Overburst completed. Check: $out (and data/logs_normal/ if applicable)."
+  fi
 }
 
 # ===================== CLI =====================
-ACTION=""; VERBOSE=0
+ACTION=""; VERBOSE=0; MON_ALL=0; MUTE=0
 for a in "$@"; do
   case "$a" in
     --help)
@@ -301,7 +342,8 @@ Usage: ./manager.sh [FLAGS]
   --docker                Install Docker Engine + Compose v2, then build images (agent/generator/saver)
   --start [--verbose]     Start mosquitto; with --verbose tails its logs
   --test                  Up mosquitto+agent+generator+saver & start collectors (malicious/normal)
-  --monitor               Dashboard: ps + MQTT sub + logs (mosquitto/agent/generator/saver)
+  --monitor               Structured MQTT feed (attacks only). Add --verbose for all telemetry; --monitor-all to also start generator
+  --mute                  Detach monitor (run in background; view feed: docker compose exec -T agent python -m tools.monitor)
   --overburst             Ruleaza un val “spicy” de trafic (vezi env OVER_*)
   --stop                  Stop all compose services
   --docker-purge          Remove project containers/images (no repo changes)
@@ -309,7 +351,7 @@ Usage: ./manager.sh [FLAGS]
 
 Env overrides:
   ERR_THR, ZLAT_THR, ZERR_THR, P95_THR, MAL_WINDOW_MIN (default 3), NOR_WINDOW_MIN (default 30)
-  OVER_RATE, OVER_ERR, OVER_BASE_LAT, OVER_BURST_LAT, OVER_SECS, OVER_METHODS
+  OVER_RATE, OVER_ERR, OVER_BASE_LAT, OVER_BURST_LAT, OVER_SECS, OVER_METHODS (space or comma-separated), OVER_PARALLEL (1 parallel, 0 sequential)
 HLP
       exit 0;;
     --check) ACTION="check" ;;
@@ -319,6 +361,8 @@ HLP
     --verbose) VERBOSE=1 ;;
     --test) ACTION="test" ;;
     --monitor) ACTION="monitor" ;;
+    --monitor-all) MON_ALL=1 ;;
+    --mute) MUTE=1 ;;
     --overburst) ACTION="overburst" ;;
     --stop) ACTION="stop" ;;
     --docker-purge) ACTION="docker-purge" ;;
