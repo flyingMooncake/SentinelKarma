@@ -102,8 +102,15 @@ async def run():
     zerr_thr = float(os.getenv("ZERR_THR", str(z_thresh)))
     p95_thr = float(os.getenv("P95_THR", "250"))
 
+    # Sidecar contract data output configuration
+    contract_dir = os.getenv("CONTRACT_DIR", "/data/contract_data")
+    salt_id = int(os.getenv("SALT_ID", "0"))
+    contract_max_attackers = int(os.getenv("CONTRACT_MAX_ATTACKERS", "10"))
+    contract_ts_epoch = int(os.getenv("CONTRACT_TS_EPOCH", "1704067200"))  # default 2024-01-01 UTC
+
     os.makedirs(normal_dir, exist_ok=True)
     os.makedirs(malicious_dir, exist_ok=True)
+    os.makedirs(contract_dir, exist_ok=True)
 
     nw = RotatingWriter(normal_dir, normal_rotate_secs)
     # custom namer for malicious logs: "unixtimestamp_dd_mm_yy_h_m_s.log" (UTC)
@@ -112,6 +119,10 @@ async def run():
         return f"{bin_start}_{t.tm_mday:02d}_{t.tm_mon:02d}_{t.tm_year % 100:02d}_{t.tm_hour:02d}_{t.tm_min:02d}_{t.tm_sec:02d}.log"
 
     mw = RotatingWriter(malicious_dir, malicious_rotate_secs, namer=mal_namer)
+
+    # Aggregator for contract data per malicious log window
+    current_cd_base = None
+    current_cd_map: dict[str, int] = {}
 
     u = urlparse(url)
     host = u.hostname or "localhost"
@@ -160,7 +171,158 @@ async def run():
                                 pass
 
                         if write_mal:
-                            mw.write(data, ts)
+                            # snapshot current malicious base before any write (rotation detection)
+                            try:
+                                pre_base = os.path.basename(mw.current_path()) if mw.current_path() else None
+                            except Exception:
+                                pre_base = None
+                            # If the data already contains aggregated fields, write in the requested summary format
+                            counts = data.get("counts") if isinstance(data, dict) else None
+                            ips = data.get("ips") if isinstance(data, dict) else None
+
+                            current_record = None
+                            if isinstance(counts, dict) or isinstance(ips, list):
+                                region = data.get("region")
+                                asn = data.get("asn")
+
+                                # total requests
+                                total_calls = counts.get("calls") if isinstance(counts, dict) else None
+                                if not isinstance(total_calls, (int, float)):
+                                    total_calls = sum(int(x.get("requests", 0)) for x in (ips or [])) if ips else 0
+
+                                # unique iphash
+                                unique_ips = counts.get("unique_iphash") if isinstance(counts, dict) else None
+                                if not isinstance(unique_ips, (int, float)):
+                                    unique_ips = len(ips or [])
+
+                                # average error rate
+                                errs = counts.get("errs") if isinstance(counts, dict) else None
+                                if isinstance(errs, (int, float)) and total_calls > 0:
+                                    avg_err_rate = float(errs) / float(total_calls)
+                                else:
+                                    avg_err_rate = float((data.get("metrics") or {}).get("err_rate", 0.0))
+
+                                # Normalize and sort attackers
+                                attackers = []
+                                for x in (ips or []):
+                                    iphash = str(x.get("iphash", ""))
+                                    if iphash.startswith("iphash:"):
+                                        iphash = iphash.split(":", 1)[1]
+                                    attackers.append({
+                                        "iphash": iphash,
+                                        "requests": int(x.get("requests", 0)),
+                                        "err_rate": float(x.get("err_rate", 0.0)),
+                                    })
+                                attackers.sort(key=lambda a: a["requests"], reverse=True)
+
+                                summary = {
+                                    "region": region,
+                                    "asn": asn,
+                                    "requests": int(total_calls) if total_calls is not None else 0,
+                                    "unique_iphash": int(unique_ips) if unique_ips is not None else 0,
+                                    "avg_err_rate": round(float(avg_err_rate), 4),
+                                    "top_attackers": attackers,
+                                }
+                                mw.write(summary, ts)
+                                current_record = summary
+                            else:
+                                # fallback: write original data if we don't have aggregated fields yet
+                                mw.write(data, ts)
+                                current_record = data
+
+                            # Aggregate iphashes per malicious window and write grouped contract file on rotation
+                            old_base = pre_base
+
+                            # Collect iphashes from available sources for this event
+                            iphashes = []
+                            # Prefer explicit ips list if provided by the event
+                            if isinstance(ips, list) and ips:
+                                for x in ips:
+                                    h = str(x.get("iphash", "")).lower()
+                                    if h.startswith("iphash:"):
+                                        h = h.split(":", 1)[1]
+                                    h = "".join(c for c in h if c in "0123456789abcdef")
+                                    if len(h) >= 12:
+                                        iphashes.append(h[:12])
+                            # Else try top_attackers from the current record (summary)
+                            if not iphashes and isinstance(current_record, dict):
+                                for x in (current_record.get("top_attackers") or []):
+                                    h = str(x.get("iphash", "")).lower()
+                                    if h.startswith("iphash:"):
+                                        h = h.split(":", 1)[1]
+                                    h = "".join(c for c in h if c in "0123456789abcdef")
+                                    if len(h) >= 12:
+                                        iphashes.append(h[:12])
+                            # Fallback to single sample field
+                            if not iphashes and isinstance(current_record, dict):
+                                h = (current_record.get("sample") or data.get("sample"))
+                                if isinstance(h, str):
+                                    h = h.lower()
+                                    if h.startswith("iphash:"):
+                                        h = h.split(":", 1)[1]
+                                    h = "".join(c for c in h if c in "0123456789abcdef")
+                                    if len(h) >= 12:
+                                        iphashes.append(h[:12])
+
+                            # After writing to malicious log, check rotation and update accumulator
+                            try:
+                                new_base = os.path.basename(mw.current_path()) if mw.current_path() else None
+                            except Exception:
+                                new_base = None
+
+                            rotated = old_base is not None and new_base is not None and old_base != new_base
+
+                            # If window rotated, finalize previous file
+                            if rotated and current_cd_base and current_cd_base == old_base:
+                                try:
+                                    # Derive bin_start from filename prefix: "<bin>_dd_mm_yy_h_m_s.log"
+                                    bin_str = old_base.split("_", 1)[0]
+                                    bin_start = int(bin_str)
+                                except Exception:
+                                    bin_start = int(ts // malicious_rotate_secs * malicious_rotate_secs)
+
+                                ts32 = bin_start - contract_ts_epoch
+                                if ts32 < 0:
+                                    ts32 = 0
+                                items = sorted(current_cd_map.items(), key=lambda kv: (-kv[1], kv[0]))
+                                entries = [k for k, _ in items][:max(0, contract_max_attackers)]
+                                contract_obj = {
+                                    "v": 1,
+                                    "sid": int(salt_id),
+                                    "t": int(ts32),
+                                    "cnt": len(entries),
+                                    "cap": int(contract_max_attackers),
+                                    "ent": [{"iph6": h} for h in entries],
+                                }
+                                out_path = os.path.join(contract_dir, f"cd_{old_base}")
+                                try:
+                                    with open(out_path, "wb") as scf:
+                                        scf.write(orjson.dumps(contract_obj))
+                                        scf.write(b"\n")
+                                except Exception:
+                                    pass
+                                # Reset accumulator for new window
+                                current_cd_map.clear()
+                                current_cd_base = None
+
+                            # Ensure accumulator is aligned to current base
+                            if new_base:
+                                if current_cd_base is None:
+                                    current_cd_base = new_base
+                                elif current_cd_base != new_base:
+                                    # If for some reason accumulator got desynced, reset
+                                    current_cd_map.clear()
+                                    current_cd_base = new_base
+
+                                # Add iphashes for current window (count frequency)
+                                for h in iphashes:
+                                    if not h:
+                                        continue
+                                    current_cd_map[h] = current_cd_map.get(h, 0) + 1
+                            # else: no base to attach; ignore silently
+                            
+                            # No per-event sidecar writes anymore; grouping happens on rotation
+                            
                         else:
                             nw.write(data, ts)
         except Exception:

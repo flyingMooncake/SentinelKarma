@@ -56,6 +56,8 @@ services:
     image: sentinelkarma-saver
     container_name: log-saver
     command: ["python","-m","tools.saver"]
+    env_file:
+      - ./infra/saver.env
     environment:
       MQTT_URL: mqtt://mosquitto:1883
       NORMAL_DIR: /data/logs_normal
@@ -73,6 +75,7 @@ services:
     volumes:
       - ./data/logs_normal:/data/logs_normal
       - ./data/malicious_logs:/data/malicious_logs
+      - ./data/contract_data:/data/contract_data
     depends_on:
       mosquitto:
         condition: service_healthy

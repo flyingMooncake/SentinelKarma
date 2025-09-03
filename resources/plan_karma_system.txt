@@ -1,0 +1,149 @@
+Karma-based, Pay-to-Join Access System — Implementation Plan
+
+Objective
+- Enable multiple paying peers to access aggregated logs (malicious logs + compact contract data) with privileges weighted by a “karma” score earned from contribution quality.
+- Keep on-chain footprint minimal; rely on compact off-chain artifacts and a gateway for access control.
+
+Scope and Phases
+- MVP (Phase A):
+  - Off-chain membership from payments (treasury wallet monitoring).
+  - Gateway service for authentication and distribution (pre-signed downloads).
+  - Karma scorer job that computes per-peer scores from existing logs and MQTT messages.
+  - Minor changes to agent and saver to propagate peer identity.
+- Hardening (Phase B):
+  - Tiered access and rate limiting in gateway.
+  - Manifests and integrity checks (SHA-256) for files.
+  - Optional S3/MinIO backend for scalable storage.
+- Optional On-chain (Phase C):
+  - Minimal PDA for salt config and rolling hash of latest windows (no NFTs).
+  - Optional membership PDA for pay-to-join proof.
+
+High-level Architecture
+- Agent (existing): emits telemetry and diagnostics. Add PEER_ID so events are attributable.
+- Saver (existing): persists normal and malicious logs, generates grouped compact “contract data” per malicious window under data/contract_data.
+- Scorer (new): consumes windows + MQTT, attributes contributions by peer_id, calculates karma (TP/FP + decay), persists in a small DB.
+- Gateway (new): authenticates peers via wallet signature, checks membership and karma, issues signed URLs for downloads (object storage) and/or streams summaries.
+- Exporter (new or folded into gateway): syncs local ./data/* windows to S3/MinIO and publishes manifests (optional).
+
+Data Contracts
+- Contract data (already implemented per window, grouped, compact):
+  { "v":1, "sid":<u16>, "t":<ts32>, "cnt":<n>, "cap":<n>, "ent":[{"iph6":"<12hex>"}, ...] }
+- Malicious logs: existing rich JSON. Ensure peer_id is included when available.
+- Manifest (Phase B, optional): { name, size, sha256, t } per file.
+
+Changes in This Repo (Phase A)
+1) Agent: add peer identity
+   - Add env var: PEER_ID (string up to 32 chars).
+   - Include peer_id in:
+     - heartbeat messages (sentinel/health)
+     - diagnostic/alert messages (sentinel/diag), alongside region/asn
+   - Validate: non-empty, alphanumeric + [-._] only; else omit.
+   - File: agent-python/agent/main.py
+
+2) Saver: propagate peer identity to logs
+   - For malicious writes (summary or raw), attach peer_id if present in the event.
+   - Do not change compact cd_* format (remains minimal, grouped at rotation). No peer_id on-chain.
+   - File: agent-python/tools/saver.py
+
+3) Ensure environment config is automatic
+   - saver.env already present; confirm or add PEER_ID in agent service (docker-compose.yml or env file).
+   - Mount ./data/contract_data to container. Already configured.
+
+4) Scorer job (new simple script)
+   - Input: ./data/malicious_logs/*.log and ./data/contract_data/cd_* + live MQTT optional.
+   - Compute per-window:
+     - TP: peer reported iph6 that appears in ent[] for that window.
+     - FRB (first-report bonus): earlier reports get +1.
+     - FP: reports not included → penalty.
+   - Aggregate with exponential decay, e.g., karma = floor(0.95 * prev) + 3*TP + 1*FRB - 4*FP.
+   - Output: SQLite file resources/karma.db (table peer_karma: pubkey, peer_id, karma, updated_at).
+   - CLI: python -m tools.scorer --logs ./data/malicious_logs --cd ./data/contract_data --out ./resources/karma.db
+
+5) Gateway service (new, FastAPI)
+   - Endpoints:
+     - POST /auth/challenge: returns a message to sign.
+     - POST /auth/verify: verifies signature, issues JWT (claims: pubkey, peer_id, karma tier, exp).
+     - GET /windows: list available windows (recent N), filtered by tier.
+     - GET /download?name=...: returns pre-signed URL (S3/MinIO or local static file stream) with rate limiting.
+   - Membership: MVP checks chain for payments to treasury address (simple JSON-RPC scan). Cache results.
+   - Tier policy: map karma → entitlements (rate limits, history depth, detail).
+
+6) Exporter (optional in MVP)
+   - Sync ./data/malicious_logs and ./data/contract_data to S3/MinIO.
+   - Generate and upload manifests with SHA-256.
+
+Karma Model (initial)
+- Signals per window:
+  - TP: +3 per iph6 that made ent[] and was reported by the peer.
+  - FRB: +1 if reported in the earliest 20% time for that iph6 (approx by first-seen).
+  - FP: -4 per iph6 reported by peer not present in ent[].
+  - Uptime (optional): +1 if peer contributed in the window.
+- Decay: multiply last score by 0.95 per window.
+- Caps: clamp per-window contribution to [-50, +50] to avoid abuse.
+
+Access Tiers (example)
+- Tier 0 (member): cd_* only, last 1 hour, rate limit R0.
+- Tier 1 (karma ≥100): malicious logs + cd_*, last 6 hours, rate limit R1.
+- Tier 2 (karma ≥500): immediate access (lowest latency), last 24 hours, higher rate R2.
+
+Security and Privacy
+- On-chain: later add PDA for salt bytes and salt_id only. No IP or iphashes on-chain beyond compact ent.
+- Privacy: use iphash6 derived from salted BLAKE2b (salt rotated by sid).
+- Auth: wallet signature → short-lived JWT.
+- Rate limiting: per JWT and IP; global circuit-breaker.
+
+Operational Plan
+- Dev environment:
+  - Ensure ./data/contract_data exists; use MALICIOUS_ROTATE_SECS=60 for quick windows.
+  - docker compose up -d
+  - Run monitor: docker compose run --rm agent python -m tools.monitor
+  - Verify cd_* appear after each window in ./data/contract_data
+- Scorer dry-run:
+  - python -m tools.scorer --logs ./data/malicious_logs --cd ./data/contract_data --out ./resources/karma.db
+  - sqlite3 ./resources/karma.db 'select * from peer_karma order by karma desc limit 10;'
+- Gateway dry-run:
+  - uvicorn gateway.app:app --reload
+  - curl /auth/challenge → sign → /auth/verify → JWT → /windows → pre-signed URLs
+
+Acceptance Criteria (MVP)
+- Agent emits peer_id in MQTT messages when env PEER_ID is set.
+- Saver logs include peer_id for malicious entries (summary path), unchanged cd_*.
+- Contract data files cd_* are generated per window with compact schema (v, sid, t, cnt, cap, ent[].iph6).
+- Scorer produces a stable karma ranking over recent windows.
+- Gateway authenticates via signature, enforces membership, returns window lists and pre-signed URLs with rate limits.
+
+Milestones & Estimates
+- A1: Agent PEER_ID + Saver propagation (0.5–1 day)
+- A2: Scorer script + DB (1–2 days)
+- A3: Gateway MVP (auth, membership check, windows list, download URLs) (2–3 days)
+- A4: Exporter + manifests (1 day)
+- A5: Rate limiting + tiers (1 day)
+- A6: Docs and runbooks (0.5 day)
+
+Risks & Mitigations
+- Sybil peers: require payment/stake; limit per-ASN contributions in scoring.
+- Data volume: use rotation and TTL (already present), offload to object storage.
+- Latency: decouple uploads with a small queue; pre-sign URLs, avoid gateway streaming for big files.
+- Integrity: manifests with sha256; optional on-chain anchoring later.
+
+Follow-ups (Phase B/C)
+- PDA for salt config (sid, salt bytes, version), optional ring buffer for window roots.
+- Membership PDA for truly on-chain pay-to-join (with grace periods).
+- Better heuristics in scorer (error-weighted contributions, program-method specificity).
+
+Deliverables in Repo
+- agent-python/agent/main.py (PEER_ID support; add to payloads)
+- agent-python/tools/saver.py (attach peer_id to malicious summary writes)
+- tools/scorer.py (new) and resources/karma.db (generated)
+- gateway/ (new FastAPI app) with config and Dockerfile
+- infra/gateway.env and infra/exporter.env
+- docs: this plan (resources/plan_karma_system.txt), API doc for gateway, scorer README
+
+Checklist (MVP)
+[ ] Add PEER_ID handling in agent and saver
+[ ] Implement tools/scorer.py
+[ ] Implement gateway service (auth + listing + presign)
+[ ] Configure exporter or static file serving
+[ ] Add manifests (optional in MVP)
+[ ] Run E2E with generator load and confirm tiers applied in gateway
+[ ] Document deploy/run and monitoring
