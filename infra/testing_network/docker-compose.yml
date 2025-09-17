@@ -1,0 +1,37 @@
+version: "3.9"
+
+name: seka_testing_network
+
+services:
+  solana:
+    image: solanalabs/solana:v1.18.14
+    container_name: seka-solana-test-validator
+    command: >
+      /bin/bash -lc "\
+      solana-test-validator \
+        --ledger /ledger \
+        --reset \
+        --rpc-port 8899 \
+        --faucet-port 9900 \
+        --limit-ledger-size 500000000 \
+        --slots-per-epoch 64 \
+        --full-rpc-api \
+        --private-rpc \
+      "
+    volumes:
+      - ./ledger:/ledger
+    ports:
+      - "8899:8899"    # JSON-RPC
+      - "9900:9900"    # Faucet
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:8899 -X POST -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getHealth\"}' | grep -q ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    networks:
+      - testing_network
+
+networks:
+  testing_network:
+    name: testing_network
+    driver: bridge

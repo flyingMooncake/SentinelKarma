@@ -1,0 +1,16 @@
+[features]
+seeds = true
+
+[programs.localnet]
+seka = "SEKA111111111111111111111111111111111111111"
+
+[programs.devnet]
+seka = "SEKA111111111111111111111111111111111111111"
+
+[provider]
+cluster = "localnet"
+# wallet will use Anchor default if not specified
+
+[scripts]
+# Example: anchor run test-local
+# test-local = "anchor test -- --nocapture"

@@ -329,7 +329,7 @@ do_overburst(){
 }
 
 # ===================== CLI =====================
-ACTION=""; VERBOSE=0; MON_ALL=0; MUTE=0
+ACTION=""; VERBOSE=0; MON_ALL=0; MUTE=0; SILENT=0; SOLANA_STOP=0
 for a in "$@"; do
   case "$a" in
     --help)
@@ -348,6 +348,9 @@ Usage: ./manager.sh [FLAGS]
   --stop                  Stop all compose services
   --docker-purge          Remove project containers/images (no repo changes)
   --docker-reinstall      Purge Docker from system, reinstall, rebuild (asks confirm)
+  --solana [--silent]     Start Solana test validator (infra/testing_network). Without --silent streams logs; with --silent runs detached
+  --solana --stop         Stop Solana test validator (infra/testing_network)
+  --local_network         [deprecated] Alias for --solana
 
 Env overrides:
   ERR_THR, ZLAT_THR, ZERR_THR, P95_THR, MAL_WINDOW_MIN (default 3), NOR_WINDOW_MIN (default 30)
@@ -359,14 +362,23 @@ HLP
     --docker) ACTION="docker" ;;
     --start) ACTION="start" ;;
     --verbose) VERBOSE=1 ;;
+    --silent) SILENT=1 ;;
     --test) ACTION="test" ;;
+    --solana) ACTION="solana" ;;
     --monitor) ACTION="monitor" ;;
     --monitor-all) MON_ALL=1 ;;
     --mute) MUTE=1 ;;
     --overburst) ACTION="overburst" ;;
-    --stop) ACTION="stop" ;;
+    --stop)
+      if [[ "$ACTION" == "solana" ]]; then
+        SOLANA_STOP=1
+      else
+        ACTION="stop"
+      fi
+      ;;
     --docker-purge) ACTION="docker-purge" ;;
     --docker-reinstall) ACTION="docker-reinstall" ;;
+    --local_network) ACTION="solana" ;;
     *) die "Unknown flag: $a (use --help)" ;;
   esac
 done
@@ -384,5 +396,7 @@ case "$ACTION" in
   stop)             do_stop ;;
   docker-purge)     docker_purge_project ;;
   docker-reinstall) docker_reinstall ;;
+  solana)          do_solana ;;
+  local_network)   do_solana ;;
   *) die "Unhandled action $ACTION" ;;
 esac
