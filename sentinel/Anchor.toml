@@ -1,0 +1,19 @@
+[programs.localnet]
+sentinel = "Da3fi9D86CM262Xbu8nCwiJRNc6wEgSoKH1cw3p1MA8V"
+
+[programs.devnet]
+sentinel = "Da3fi9D86CM262Xbu8nCwiJRNc6wEgSoKH1cw3p1MA8V"
+
+[programs.mainnet]
+sentinel = "Da3fi9D86CM262Xbu8nCwiJRNc6wEgSoKH1cw3p1MA8V"
+
+[provider]
+cluster = "Localnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+build = "anchor build --no-idl"
+test = "npx mocha -r ts-node/register tests/**/*.ts --timeout 100000"
+
+[test]
+startup_wait = 5000

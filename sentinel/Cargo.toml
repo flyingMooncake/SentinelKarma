@@ -1,0 +1,11 @@
+[workspace]
+members = [
+  "programs/sentinel"
+]
+
+[profile.release]
+opt-level = "s"
+codegen-units = 1
+lto = true
+panic = "abort"
+overflow-checks = true

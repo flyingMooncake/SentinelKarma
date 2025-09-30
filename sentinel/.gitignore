@@ -1,0 +1,47 @@
+# Anchor
+.anchor
+target/
+!target/idl/
+!target/types/
+!target/deploy/sentinel-keypair.json
+
+# Production/Mainnet Keys - NEVER COMMIT THESE!
+mainnet-*.json
+production-*.json
+**/mainnet-keypair.json
+**/production-keypair.json
+.env.production
+.env.mainnet
+
+# Node
+node_modules/
+package-lock.json
+yarn.lock
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Test
+.nyc_output/
+coverage/
+
+# Solana
+test-ledger/
+
+# Note: Devnet keys (sentinel-keypair.json, ~/.config/solana/id.json) 
+# are allowed for development purposes only
+# NEVER use these keys on mainnet!
