@@ -85,8 +85,9 @@ pub mod sentinel {
         Ok(())
     }
 
-    pub fn mint_nft(ctx: Context<MintNft>, hash: [u8; 32], db_addr: Pubkey) -> Result<()> {
+    pub fn mint_nft(ctx: Context<MintNft>, log_url: String, file_hash: [u8; 32]) -> Result<()> {
         require!(ctx.accounts.peer.active, SentinelError::NotPeer);
+        require!(log_url.len() <= 200, SentinelError::UrlTooLong);
 
         // Mint the NFT (1 token of a new mint with 0 decimals) to user
         let cpi_ctx = CpiContext::new(
@@ -103,8 +104,8 @@ pub mod sentinel {
         let post = &mut ctx.accounts.post;
         post.owner = ctx.accounts.user.key();
         post.nft_mint = ctx.accounts.nft_mint.key();
-        post.hash = hash;
-        post.db_addr = db_addr;
+        post.log_url = log_url;
+        post.file_hash = file_hash;
         post.likes = 0;
         post.cycle_index = ctx.accounts.state.cycle_index;
         // bump not stored
@@ -420,13 +421,13 @@ impl PeerState {
 pub struct Post {
     pub owner: Pubkey,
     pub nft_mint: Pubkey,
-    pub hash: [u8; 32],
-    pub db_addr: Pubkey,
+    pub log_url: String,        // HTTP URL to log file (max 200 chars)
+    pub file_hash: [u8; 32],    // SHA256 hash of log file
     pub likes: u64,
     pub cycle_index: u64,
     }
 impl Post {
-    pub const SIZE: usize = 144; // 32 + 32 + 32 + 32 + 8 + 8
+    pub const SIZE: usize = 320; // 32 + 32 + (4 + 200) + 32 + 8 + 8
 }
 
 #[account]
@@ -452,4 +453,6 @@ pub enum SentinelError {
     MissingAccount,
     #[msg("Invalid account data")]
     InvalidAccount,
+    #[msg("Log URL too long (max 200 characters)")]
+    UrlTooLong,
 }

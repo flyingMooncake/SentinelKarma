@@ -1,14 +1,16 @@
-# agent-python/tools/saver.py
-import asyncio, os, time
+import asyncio
+import os
+import time
 from urllib.parse import urlparse
 import orjson
 from aiomqtt import Client
 
+
 class RotatingWriter:
     def __init__(self, base_dir: str, rotate_secs: int, namer=None):
         self.base_dir = base_dir
-        self.rotate_secs = max(60, int(rotate_secs))  # minim 60s ca să nu abuzăm FS
-        self.namer = namer  # optional function: (bin_start:int)->filename
+        self.rotate_secs = max(60, int(rotate_secs))
+        self.namer = namer
         os.makedirs(base_dir, exist_ok=True)
         self._cur_bin = None
         self._fp = None
@@ -16,7 +18,7 @@ class RotatingWriter:
     def _path_for(self, bin_start: int) -> str:
         if callable(self.namer):
             return os.path.join(self.base_dir, self.namer(bin_start))
-        t = time.gmtime(bin_start)  # UTC
+        t = time.gmtime(bin_start)
         return os.path.join(
             self.base_dir,
             f"log-{t.tm_year:04d}{t.tm_mon:02d}{t.tm_mday:02d}-{t.tm_hour:02d}{t.tm_min:02d}.jsonl"
@@ -32,7 +34,6 @@ class RotatingWriter:
                     self._fp.close()
             self._cur_bin = bin_start
             path = self._path_for(bin_start)
-            # append + unbuffered (flushed on each write)
             self._fp = open(path, "ab", buffering=0)
         self._fp.write(orjson.dumps(obj) + b"\n")
         try:
@@ -53,8 +54,8 @@ class RotatingWriter:
                 self._fp.close()
             self._fp = None
 
+
 async def cleanup_loop(directory: str, ttl_secs: int, interval: int = 60, writer: RotatingWriter | None = None):
-    """Șterge fișierele *.jsonl/*.log mai vechi decât ttl_secs, la fiecare `interval` secunde."""
     if ttl_secs <= 0:
         return
     os.makedirs(directory, exist_ok=True)
@@ -65,7 +66,6 @@ async def cleanup_loop(directory: str, ttl_secs: int, interval: int = 60, writer
                 if not (name.endswith(".jsonl") or name.endswith(".log")):
                     continue
                 path = os.path.join(directory, name)
-                # nu ștergem fișierul în care scriem acum
                 if writer and writer.current_path() == path:
                     continue
                 try:
@@ -75,52 +75,42 @@ async def cleanup_loop(directory: str, ttl_secs: int, interval: int = 60, writer
                 except FileNotFoundError:
                     pass
                 except Exception:
-                    # nu oprim bucla de curățare pentru un fișier problematic
                     pass
         except Exception:
             pass
         await asyncio.sleep(interval)
 
+
 async def run():
     url = os.getenv("MQTT_URL", "mqtt://mosquitto:1883")
-
     normal_dir = os.getenv("NORMAL_DIR", "/data/logs_normal")
     malicious_dir = os.getenv("MALICIOUS_DIR", "/data/malicious_logs")
-
-    # rotație separată
-    normal_rotate_secs    = int(os.getenv("NORMAL_ROTATE_SECS", "1800"))  # 30 min
-    malicious_rotate_secs = int(os.getenv("MALICIOUS_ROTATE_SECS", "180"))  # 3 min
-
-    # retenție (TTL). 0 = păstrează la nesfârșit
-    normal_ttl_mins       = int(os.getenv("NORMAL_TTL_MINS", "120"))  # 2 ore default
-    malicious_ttl_mins    = int(os.getenv("MALICIOUS_TTL_MINS", "0"))  # default: nu ștergem
-
+    normal_rotate_secs = int(os.getenv("NORMAL_ROTATE_SECS", "1800"))
+    malicious_rotate_secs = int(os.getenv("MALICIOUS_ROTATE_SECS", "180"))
+    normal_ttl_mins = int(os.getenv("NORMAL_TTL_MINS", "120"))
+    malicious_ttl_mins = int(os.getenv("MALICIOUS_TTL_MINS", "0"))
     z_thresh = float(os.getenv("Z_THRESHOLD", "3.0"))
-    # Additional classification thresholds (fallback to Z_THRESHOLD for z.* if specific not provided)
     err_thr = float(os.getenv("ERR_THR", "0.05"))
     zlat_thr = float(os.getenv("ZLAT_THR", str(z_thresh)))
     zerr_thr = float(os.getenv("ZERR_THR", str(z_thresh)))
     p95_thr = float(os.getenv("P95_THR", "250"))
-
-    # Sidecar contract data output configuration
     contract_dir = os.getenv("CONTRACT_DIR", "/data/contract_data")
     salt_id = int(os.getenv("SALT_ID", "0"))
     contract_max_attackers = int(os.getenv("CONTRACT_MAX_ATTACKERS", "10"))
-    contract_ts_epoch = int(os.getenv("CONTRACT_TS_EPOCH", "1704067200"))  # default 2024-01-01 UTC
+    contract_ts_epoch = int(os.getenv("CONTRACT_TS_EPOCH", "1704067200"))
 
     os.makedirs(normal_dir, exist_ok=True)
     os.makedirs(malicious_dir, exist_ok=True)
     os.makedirs(contract_dir, exist_ok=True)
 
     nw = RotatingWriter(normal_dir, normal_rotate_secs)
-    # custom namer for malicious logs: "unixtimestamp_dd_mm_yy_h_m_s.log" (UTC)
+
     def mal_namer(bin_start: int) -> str:
         t = time.gmtime(bin_start)
         return f"{bin_start}_{t.tm_mday:02d}_{t.tm_mon:02d}_{t.tm_year % 100:02d}_{t.tm_hour:02d}_{t.tm_min:02d}_{t.tm_sec:02d}.log"
 
     mw = RotatingWriter(malicious_dir, malicious_rotate_secs, namer=mal_namer)
 
-    # Aggregator for contract data per malicious log window
     current_cd_base = None
     current_cd_map: dict[str, int] = {}
 
@@ -128,7 +118,6 @@ async def run():
     host = u.hostname or "localhost"
     port = u.port or 1883
 
-    # pornesc curățarea în fundal (normal obligatoriu, malicious opțional)
     tasks = []
     tasks.append(asyncio.create_task(
         cleanup_loop(normal_dir, normal_ttl_mins * 60, 60, writer=nw)
@@ -171,12 +160,11 @@ async def run():
                                 pass
 
                         if write_mal:
-                            # snapshot current malicious base before any write (rotation detection)
                             try:
                                 pre_base = os.path.basename(mw.current_path()) if mw.current_path() else None
                             except Exception:
                                 pre_base = None
-                            # If the data already contains aggregated fields, write in the requested summary format
+
                             counts = data.get("counts") if isinstance(data, dict) else None
                             ips = data.get("ips") if isinstance(data, dict) else None
 
@@ -185,24 +173,20 @@ async def run():
                                 region = data.get("region")
                                 asn = data.get("asn")
 
-                                # total requests
                                 total_calls = counts.get("calls") if isinstance(counts, dict) else None
                                 if not isinstance(total_calls, (int, float)):
                                     total_calls = sum(int(x.get("requests", 0)) for x in (ips or [])) if ips else 0
 
-                                # unique iphash
                                 unique_ips = counts.get("unique_iphash") if isinstance(counts, dict) else None
                                 if not isinstance(unique_ips, (int, float)):
                                     unique_ips = len(ips or [])
 
-                                # average error rate
                                 errs = counts.get("errs") if isinstance(counts, dict) else None
                                 if isinstance(errs, (int, float)) and total_calls > 0:
                                     avg_err_rate = float(errs) / float(total_calls)
                                 else:
                                     avg_err_rate = float((data.get("metrics") or {}).get("err_rate", 0.0))
 
-                                # Normalize and sort attackers
                                 attackers = []
                                 for x in (ips or []):
                                     iphash = str(x.get("iphash", ""))
@@ -226,16 +210,12 @@ async def run():
                                 mw.write(summary, ts)
                                 current_record = summary
                             else:
-                                # fallback: write original data if we don't have aggregated fields yet
                                 mw.write(data, ts)
                                 current_record = data
 
-                            # Aggregate iphashes per malicious window and write grouped contract file on rotation
                             old_base = pre_base
 
-                            # Collect iphashes from available sources for this event
                             iphashes = []
-                            # Prefer explicit ips list if provided by the event
                             if isinstance(ips, list) and ips:
                                 for x in ips:
                                     h = str(x.get("iphash", "")).lower()
@@ -244,7 +224,6 @@ async def run():
                                     h = "".join(c for c in h if c in "0123456789abcdef")
                                     if len(h) >= 12:
                                         iphashes.append(h[:12])
-                            # Else try top_attackers from the current record (summary)
                             if not iphashes and isinstance(current_record, dict):
                                 for x in (current_record.get("top_attackers") or []):
                                     h = str(x.get("iphash", "")).lower()
@@ -253,7 +232,6 @@ async def run():
                                     h = "".join(c for c in h if c in "0123456789abcdef")
                                     if len(h) >= 12:
                                         iphashes.append(h[:12])
-                            # Fallback to single sample field
                             if not iphashes and isinstance(current_record, dict):
                                 h = (current_record.get("sample") or data.get("sample"))
                                 if isinstance(h, str):
@@ -264,7 +242,6 @@ async def run():
                                     if len(h) >= 12:
                                         iphashes.append(h[:12])
 
-                            # After writing to malicious log, check rotation and update accumulator
                             try:
                                 new_base = os.path.basename(mw.current_path()) if mw.current_path() else None
                             except Exception:
@@ -272,10 +249,8 @@ async def run():
 
                             rotated = old_base is not None and new_base is not None and old_base != new_base
 
-                            # If window rotated, finalize previous file
                             if rotated and current_cd_base and current_cd_base == old_base:
                                 try:
-                                    # Derive bin_start from filename prefix: "<bin>_dd_mm_yy_h_m_s.log"
                                     bin_str = old_base.split("_", 1)[0]
                                     bin_start = int(bin_str)
                                 except Exception:
@@ -301,33 +276,26 @@ async def run():
                                         scf.write(b"\n")
                                 except Exception:
                                     pass
-                                # Reset accumulator for new window
                                 current_cd_map.clear()
                                 current_cd_base = None
 
-                            # Ensure accumulator is aligned to current base
                             if new_base:
                                 if current_cd_base is None:
                                     current_cd_base = new_base
                                 elif current_cd_base != new_base:
-                                    # If for some reason accumulator got desynced, reset
                                     current_cd_map.clear()
                                     current_cd_base = new_base
 
-                                # Add iphashes for current window (count frequency)
                                 for h in iphashes:
                                     if not h:
                                         continue
                                     current_cd_map[h] = current_cd_map.get(h, 0) + 1
-                            # else: no base to attach; ignore silently
-                            
-                            # No per-event sidecar writes anymore; grouping happens on rotation
-                            
+
                         else:
                             nw.write(data, ts)
         except Exception:
-            # reconectare simplă MQTT
             await asyncio.sleep(1)
+
 
 if __name__ == "__main__":
     import uvloop

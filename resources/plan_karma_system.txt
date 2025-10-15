@@ -147,3 +147,75 @@ Checklist (MVP)
 [ ] Add manifests (optional in MVP)
 [ ] Run E2E with generator load and confirm tiers applied in gateway
 [ ] Document deploy/run and monitoring
+
+
+Progress Snapshot (2025-09-09)
+- Overall status: Not Started
+- Completed items: 0/7
+- In progress items: 0/7
+- Repository state observed: only resources/plan_karma_system.txt exists; no code for agent/gateway/scorer/exporter is present in this repo yet.
+
+What is done vs planned
+- Implemented: None detected in repository.
+- Pending Phase A work:
+  - A1: Agent PEER_ID + Saver propagation
+  - A2: Scorer script + SQLite DB output
+  - A3: Gateway MVP (auth, membership check, windows list, download URLs)
+  - Environment config (ensure PEER_ID and data mounts)
+- Pending Phase B work:
+  - Tiers + rate limiting in gateway
+  - Manifests and integrity checks
+  - Optional S3/MinIO backend
+- Pending Phase C work:
+  - Minimal PDA(s) for salt config and optional membership
+
+Phase A — Execution Plan (Next Steps)
+1) A1: Agent PEER_ID + Saver propagation
+   - Modify agent-python/agent/main.py to accept PEER_ID env and include peer_id in sentinel/health and sentinel/diag messages.
+   - Update agent-python/tools/saver.py to attach peer_id to malicious summary writes; do not alter cd_* schema.
+   - DoD: Messages include peer_id when PEER_ID is set and valid; saver outputs include peer_id field on malicious entries.
+
+2) A2: Scorer script and DB
+   - Create tools/scorer.py with CLI: python -m tools.scorer --logs ./data/malicious_logs --cd ./data/contract_data --out ./resources/karma.db
+   - Implement TP/FRB/FP with decay; clamp contributions to [-50, +50].
+   - DoD: Running CLI creates resources/karma.db and returns stable rankings.
+
+3) A3: Gateway MVP
+   - Create gateway/ FastAPI app with endpoints: /auth/challenge, /auth/verify, /windows, /download.
+   - Implement simple treasury payment check and in-memory cache; issue JWT on verify.
+   - Provide local static file streaming or pre-signed URLs (if object storage configured).
+   - DoD: Manual flow via curl works; JWT gating enforced.
+
+Operational Kickoff
+- Prepare directories: ./data/contract_data, ./data/malicious_logs, ./resources/
+- Dev runbook:
+  - docker compose up -d
+  - uvicorn gateway.app:app --reload (once gateway exists)
+  - python -m tools.scorer ... (once implemented)
+
+Progress Tracking Conventions
+- Keep this section updated with date-stamped snapshots.
+- Mark Checklist items with [x] when completed and note commit/PR IDs in a short changelog below.
+
+Changelog (to be updated)
+- 2025-09-09: Added progress snapshot and Phase A execution details. Current status: Not Started.
+- 2025-09-10: Added on-chain specs, private network setup, and manager script updates.
+  - Created Solana contract spec (docs/solana/karma_contracts.md) with SEKA tokenomics.
+  - Created NFT log storage spec (docs/solana/nft_logs.md) using Arweave/IPFS + cNFTs.
+  - Created private IPFS access control spec (docs/infra/ipfs_access_control.md).
+  - Scaffolded SEKA Anchor program (programs/seka/src/lib.rs) and configs.
+  - Added Docker-based private Solana network (infra/testing_network).
+  - Attempted to add --local_network command to manager.sh; encountered script parsing/patching issues. The command is not yet functional and requires debugging.
+
+Progress Snapshot (2025-09-10)
+- Overall status: On-chain design and local network setup complete. Implementation in progress.
+- Completed items:
+  - On-chain design specification (SEKA contracts, NFT storage, private IPFS access).
+  - Anchor program scaffolding.
+  - Docker-based private Solana network.
+- In progress items:
+  - manager.sh scripting for local network control (blocked by patching errors).
+- Next steps:
+  - Resolve manager.sh issue.
+  - Begin implementing off-chain components (scorer, gateway) to interact with the deployed SEKA contract.
+  - Write Anchor tests for the SEKA program.

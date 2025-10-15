@@ -1,0 +1,9 @@
+/home/water/SentinelKarma/target/debug/deps/spl_transfer_hook_interface-8920cf5eafe975ca.d: /home/water/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-transfer-hook-interface-0.6.5/src/lib.rs /home/water/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-transfer-hook-interface-0.6.5/src/error.rs /home/water/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-transfer-hook-interface-0.6.5/src/instruction.rs /home/water/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-transfer-hook-interface-0.6.5/src/offchain.rs /home/water/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-transfer-hook-interface-0.6.5/src/onchain.rs
+
+/home/water/SentinelKarma/target/debug/deps/libspl_transfer_hook_interface-8920cf5eafe975ca.rmeta: /home/water/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-transfer-hook-interface-0.6.5/src/lib.rs /home/water/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-transfer-hook-interface-0.6.5/src/error.rs /home/water/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-transfer-hook-interface-0.6.5/src/instruction.rs /home/water/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-transfer-hook-interface-0.6.5/src/offchain.rs /home/water/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-transfer-hook-interface-0.6.5/src/onchain.rs
+
+/home/water/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-transfer-hook-interface-0.6.5/src/lib.rs:
+/home/water/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-transfer-hook-interface-0.6.5/src/error.rs:
+/home/water/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-transfer-hook-interface-0.6.5/src/instruction.rs:
+/home/water/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-transfer-hook-interface-0.6.5/src/offchain.rs:
+/home/water/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-transfer-hook-interface-0.6.5/src/onchain.rs:

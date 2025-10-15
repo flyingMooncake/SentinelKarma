@@ -2,3 +2,11 @@
 **/dist/
 **/.vite/
 **/.DS_Store
+
+# Data directory (logs only)
+data/**
+!data/.gitignore
+
+# Log files
+*.log
+*.jsonl
