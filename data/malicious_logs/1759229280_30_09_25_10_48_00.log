@@ -1,0 +1,2 @@
+{"ts":1759229308,"window_ms":250,"region":"eu-central","asn":64512,"method":"getLogs","metrics":{"p95":116.28,"err_rate":0.0},"z":{"lat":4.47,"err":0.0},"sample":"iphash:e9a7d9f31c93"}
+{"ts":1759229312,"window_ms":250,"region":"eu-central","asn":64512,"method":"getLogs","metrics":{"p95":112.94,"err_rate":0.0},"z":{"lat":3.48,"err":0.0},"sample":"iphash:321e97fc7572"}
