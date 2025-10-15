@@ -1,24 +1,24 @@
-# agent-python/tools/monitor.py
-import asyncio, os, json, time
+import asyncio
+import os
+import json
+import time
 from urllib.parse import urlparse
 import orjson
 from aiomqtt import Client
 
 RED = "\033[1;31m"
 GREEN = "\033[1;32m"
-YELLOW = "\033[1;33m"
 CYAN = "\033[36m"
 DIM = "\033[2m"
 RESET = "\033[0m"
 
-COLOR = os.getenv("MONITOR_COLOR", "1").lower() in ("1","true","yes","on")
-VERBOSE = os.getenv("MONITOR_VERBOSE", "0").lower() in ("1","true","yes","on")
+COLOR = os.getenv("MONITOR_COLOR", "1").lower() in ("1", "true", "yes", "on")
+VERBOSE = os.getenv("MONITOR_VERBOSE", "0").lower() in ("1", "true", "yes", "on")
 Z_THRESHOLD = float(os.getenv("Z_THRESHOLD", "3.0"))
 ERR_THR = float(os.getenv("ERR_THR", "0.05"))
 P95_THR = float(os.getenv("P95_THR", "250"))
 ZLAT_THR = float(os.getenv("ZLAT_THR", str(Z_THRESHOLD)))
 ZERR_THR = float(os.getenv("ZERR_THR", str(Z_THRESHOLD)))
-
 MQTT_URL = os.getenv("MQTT_URL", "mqtt://mosquitto:1883")
 
 
@@ -77,6 +77,7 @@ async def run():
                         print(render_line(topic, data, mal), flush=True)
         except Exception:
             await asyncio.sleep(1)
+
 
 if __name__ == "__main__":
     import uvloop

@@ -1,13 +1,16 @@
-import argparse, json, os, random, time
+import argparse
+import json
+import random
+import time
 from datetime import datetime
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--log", default="/data/rpc.jsonl")
-parser.add_argument("--rate", type=int, default=400)  # events/sec
+parser.add_argument("--rate", type=int, default=400)
 parser.add_argument("--burst", default="getProgramAccounts")
-parser.add_argument("--err", type=float, default=0.02)  # error rate în burst
-parser.add_argument("--baseline_lat", type=float, default=90)     # <- FIX
-parser.add_argument("--burst_lat", type=float, default=260)       # <- FIX
+parser.add_argument("--err", type=float, default=0.02)
+parser.add_argument("--baseline_lat", type=float, default=90)
+parser.add_argument("--burst_lat", type=float, default=260)
 parser.add_argument("--burst_secs", type=int, default=20)
 parser.add_argument("--stdout", action="store_true", help="also emit JSON events to stdout for tracing")
 args = parser.parse_args()
@@ -15,13 +18,14 @@ args = parser.parse_args()
 methods = ["getProgramAccounts", "getLogs", "getBalance", "getBlock"]
 ips = [f"10.0.0.{i}" for i in range(2, 200)]
 
+
 def one_event(burst=False):
     m = random.choices(methods, weights=[4, 3, 2, 1])[0]
     if burst:
         m = args.burst
-    lat = random.gauss(args.baseline_lat, 15)            # <- FIX
+    lat = random.gauss(args.baseline_lat, 15)
     if burst and m == args.burst:
-        lat = random.gauss(args.burst_lat, 35)           # <- FIX
+        lat = random.gauss(args.burst_lat, 35)
     status = 200
     if burst and random.random() < args.err:
         status = random.choice([500, 502, 503])
@@ -34,6 +38,7 @@ def one_event(burst=False):
         "burst": bool(burst),
         "src": "generator"
     }
+
 
 with open(args.log, "a", buffering=1) as f:
     print(f"# writing JSONL to {args.log}")

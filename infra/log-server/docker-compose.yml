@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  log-server:
+    build: .
+    container_name: sentinel-log-server
+    environment:
+      - SERVER_HOST=0.0.0.0
+      - SERVER_PORT=9000
+      - LOGS_DIR=/data/logs
+      - AUTHORIZED_PEERS_FILE=/data/authorized_peers.txt
+      - MY_PEER_URL=${MY_PEER_URL:-http://localhost:9000}
+      - MAX_LOG_SIZE=10485760  # 10MB
+      - MAX_STORAGE=1073741824  # 1GB
+    volumes:
+      - ./data/logs:/data/logs
+      - ./data/authorized_peers.txt:/data/authorized_peers.txt:ro
+    ports:
+      - "9000:9000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
