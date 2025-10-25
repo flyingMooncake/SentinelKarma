@@ -1,0 +1,25 @@
+{
+  "name": "sentinel-karma-api",
+  "version": "1.0.0",
+  "description": "TypeScript API libraries for SentinelKarma",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node",
+    "example": "ts-node example-usage.ts",
+    "test": "ts-node sentinel-api.ts"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.87.6",
+    "@coral-xyz/anchor": "^0.29.0",
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.3.2"
+  },
+  "author": "SentinelKarma",
+  "license": "MIT"
+}

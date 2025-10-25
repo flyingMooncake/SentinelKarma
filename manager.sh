@@ -56,7 +56,7 @@ need_pkg(){ dpkg -s "$1" >/dev/null 2>&1; }
 need_bin(){ command -v "$1" >/dev/null 2>&1; }
 
 ensure_dirs(){
-  mkdir -p data data/logs_normal data/malicious_logs || true
+  mkdir -p data data/logs_normal data/malicious_logs data/logs || true
   chmod 777 data || true
 }
 
@@ -83,9 +83,38 @@ check_missing(){
 
 do_install_libs(){
   need_sudo
-  info "Installing base tools (jq, tmux, etc)…"
+  info "Installing base tools (jq, tmux, nodejs, etc)…"
   sudo apt-get update -y
-  sudo apt-get install -y ca-certificates curl gnupg lsb-release jq tmux procps
+  sudo apt-get install -y ca-certificates curl gnupg lsb-release jq tmux procps wget git
+  
+  # Install Node.js 20.x if not present or outdated
+  if ! command -v node >/dev/null 2>&1 || [[ $(node --version 2>/dev/null | cut -d'v' -f2 | cut -d'.' -f1) -lt 18 ]]; then
+    info "Installing Node.js 20.x…"
+    
+    # Remove conflicting old Node.js packages first
+    info "Removing old Node.js packages if present…"
+    sudo apt-get remove -y libnode-dev node-gyp libnode72 nodejs-doc 2>/dev/null || true
+    sudo apt-get remove -y nodejs npm 2>/dev/null || true
+    sudo apt-get autoremove -y 2>/dev/null || true
+    
+    # Clean apt cache to avoid conflicts
+    sudo apt-get clean
+    sudo rm -rf /var/cache/apt/archives/nodejs*.deb 2>/dev/null || true
+    
+    # Setup NodeSource repository
+    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+    
+    # Force install with overwrite if needed
+    sudo apt-get install -y nodejs || sudo dpkg -i --force-overwrite /var/cache/apt/archives/nodejs*.deb && sudo apt-get install -f -y
+  else
+    info "Node.js $(node --version) already installed"
+  fi
+  
+  # Verify npm is available (comes with nodejs from NodeSource)
+  if ! command -v npm >/dev/null 2>&1; then
+    warn "npm not found, but should be included with Node.js"
+  fi
+  
   info "Done."
 }
 
@@ -131,7 +160,7 @@ docker_setup(){
 build_images(){
   [[ -f docker-compose.yml ]] || die "Missing docker-compose.yml"
   info "Building images…"
-  dc build agent generator saver
+  dc build agent generator saver log-server web
 }
 
 do_start(){
@@ -217,18 +246,124 @@ do_monitor(){
   [[ -n "$DCCMD" ]] || die "Compose not available. Run: $0 --docker"
   info "Ensuring services are up…"
   if [[ "${MON_ALL:-0}" -eq 1 ]]; then
-    dc up -d mosquitto agent saver generator
+    dc up -d mosquitto agent saver generator log-server
   else
-    dc up -d mosquitto agent saver
+    dc up -d mosquitto agent saver log-server
   fi
+  
+  # Wait for log-server to be healthy
+  info "Waiting for log-server to be ready…"
+  for i in {1..30}; do
+    if curl -sf http://localhost:9000/health >/dev/null 2>&1; then
+      info "Log server is ready at http://localhost:9000"
+      break
+    fi
+    [[ $i -eq 30 ]] && warn "Log server health check timeout (may still be starting)"
+    sleep 1
+  done
+  
+  # If --full flag, start auto-mint monitor
+  if [[ "${FULL_MONITOR:-0}" -eq 1 ]]; then
+    info "Starting FULL monitoring mode (auto-mint + upload)..."
+    info "This will automatically process new contract data files"
+    
+    if [[ ! -f "scripts/auto_mint_monitor.py" ]]; then
+      err "Auto-mint monitor script not found!"
+      return 1
+    fi
+    
+    chmod +x scripts/auto_mint_monitor.py 2>/dev/null || true
+    python3 scripts/auto_mint_monitor.py
+    return 0
+  fi
+  
   if [[ "${MUTE:-0}" -eq 1 ]]; then
     info "Monitor started in background. Structured feed available via: $DCCMD exec -T agent python -m tools.monitor"
+    info "Log server running at http://localhost:9000 (health: http://localhost:9000/health)"
     return 0
   fi
   local vflag="0"
   [[ "${VERBOSE:-0}" -eq 1 ]] && vflag="1"
   info "Streaming structured MQTT feed (attacks-only by default; use --verbose for all)…"
+  info "Log server running at http://localhost:9000"
   MONITOR_VERBOSE="$vflag" $DCCMD exec -T agent python -m tools.monitor
+}
+
+do_web(){
+  [[ -f docker-compose.yml ]] || die "Missing docker-compose.yml"
+  [[ -n "$DCCMD" ]] || die "Compose not available. Run: $0 --docker"
+  
+  info "Starting web dashboard and dependencies…"
+  ensure_dirs
+  
+  # Start required services
+  dc up -d mosquitto log-server web
+  
+  # If --monitor-all, also start generator
+  if [[ "${MON_ALL:-0}" -eq 1 ]]; then
+    info "Starting generator for demo data…"
+    dc up -d generator
+  fi
+  
+  # Wait for web to be ready
+  info "Waiting for web dashboard to be ready…"
+  for i in {1..30}; do
+    if curl -sf http://localhost:3000 >/dev/null 2>&1; then
+      info "✓ Web dashboard is ready!"
+      info "╔════════════════════════════════════════════════════════════╗"
+      info "║  SentinelKarma Security Dashboard                         ║"
+      info "║  Access at: http://localhost:3000                         ║"
+      info "║  API Server: http://localhost:9000                        ║"
+      info "╚════════════════════════════════════════════════════════════╝"
+      
+      # Open browser if available
+      if command -v xdg-open >/dev/null 2>&1; then
+        xdg-open http://localhost:3000 2>/dev/null &
+      elif command -v open >/dev/null 2>&1; then
+        open http://localhost:3000 2>/dev/null &
+      fi
+      
+      break
+    fi
+    [[ $i -eq 30 ]] && warn "Web dashboard health check timeout (may still be starting)"
+    sleep 1
+  done
+  
+  if [[ "${MUTE:-0}" -ne 1 ]]; then
+    info "Press Ctrl+C to stop"
+    dc logs -f web
+  fi
+}
+
+do_update(){
+  [[ -f docker-compose.yml ]] || die "Missing docker-compose.yml"
+  [[ -n "$DCCMD" ]] || die "Compose not available. Run: $0 --docker"
+  
+  info "Updating application components…"
+  
+  # Pull latest changes if in git repo
+  if [[ -d .git ]]; then
+    info "Pulling latest changes from git…"
+    git pull || warn "Git pull failed, continuing with local version"
+  fi
+  
+  # Update Node dependencies for web app
+  if [[ -f app/package.json ]]; then
+    info "Updating web app dependencies…"
+    (cd app && npm install) || warn "npm install failed"
+  fi
+  
+  # Rebuild all images
+  info "Rebuilding Docker images…"
+  dc build --no-cache agent generator saver log-server web
+  
+  # Restart services
+  info "Restarting services with new images…"
+  dc down
+  dc up -d
+  
+  info "✓ Update complete!"
+  info "Services have been restarted with the latest version."
 }
 
 do_stop(){ info "Stopping stack…"; dc down --remove-orphans || true; }
@@ -236,7 +371,7 @@ do_stop(){ info "Stopping stack…"; dc down --remove-orphans || true; }
 docker_purge_project(){
   info "Purging project containers/images…"
   dc down -v --remove-orphans || true
-  docker image rm -f sentinelkarma-agent sentinelkarma-generator sentinelkarma-saver 2>/dev/null || true
+  docker image rm -f sentinelkarma-agent sentinelkarma-generator sentinelkarma-saver sentinelkarma-log-server sentinelkarma-web 2>/dev/null || true
   docker image prune -f >/dev/null || true
   docker builder prune -f >/dev/null || true
   info "Done."
@@ -255,6 +390,72 @@ docker_reinstall(){
   docker_setup
   build_images
   info "Reinstall complete."
+}
+
+do_solana(){
+  # Check if submodule exists
+  if [[ ! -d "solanaTestNetDocker" ]]; then
+    err "Solana testnet submodule not found!"
+    info "Initialize it with: git submodule update --init --recursive"
+    exit 1
+  fi
+  
+  cd solanaTestNetDocker || die "Cannot enter solanaTestNetDocker directory"
+  
+  # Handle stop command
+  if [[ "${SOLANA_STOP:-0}" -eq 1 ]]; then
+    info "Stopping Solana testnet..."
+    if [[ -f manager.sh ]]; then
+      ./manager.sh --stop
+    else
+      docker compose down 2>/dev/null || docker-compose down 2>/dev/null || true
+    fi
+    cd "$ROOT"
+    info "Solana testnet stopped"
+    return 0
+  fi
+  
+  # Check if manager.sh exists in submodule
+  if [[ ! -f manager.sh ]]; then
+    err "manager.sh not found in solanaTestNetDocker!"
+    info "Make sure the submodule is properly initialized"
+    cd "$ROOT"
+    exit 1
+  fi
+  
+  # Make manager.sh executable
+  chmod +x manager.sh 2>/dev/null || true
+  
+  # Initialize if needed
+  if [[ ! -d "data" ]] || [[ ! -f "data/config/validator-keypair.json" ]]; then
+    info "Initializing Solana testnet for first time..."
+    ./manager.sh --init || die "Failed to initialize Solana testnet"
+  fi
+  
+  # Start validator
+  if [[ "${SILENT:-0}" -eq 1 ]]; then
+    info "Starting Solana testnet in background..."
+    ./manager.sh --validate --silent
+  else
+    info "Starting Solana testnet..."
+    ./manager.sh --validate
+  fi
+  
+  cd "$ROOT"
+  
+  # Wait for validator to be ready
+  info "Waiting for Solana validator to be ready..."
+  for i in {1..30}; do
+    if curl -sf http://localhost:8899 -X POST -H "Content-Type: application/json" \
+         -d '{"jsonrpc":"2.0","id":1,"method":"getHealth"}' >/dev/null 2>&1; then
+      info "✓ Solana testnet is ready!"
+      info "RPC URL: http://localhost:8899"
+      info "WebSocket: ws://localhost:8900"
+      break
+    fi
+    [[ $i -eq 30 ]] && warn "Solana health check timeout (may still be starting)"
+    sleep 2
+  done
 }
 
 do_overburst(){
@@ -329,7 +530,7 @@ do_overburst(){
 }
 
 # ===================== CLI =====================
-ACTION=""; VERBOSE=0; MON_ALL=0; MUTE=0; SILENT=0; SOLANA_STOP=0
+ACTION=""; VERBOSE=0; MON_ALL=0; MUTE=0; SILENT=0; SOLANA_STOP=0; FULL_MONITOR=0
 for a in "$@"; do
   case "$a" in
     --help)
@@ -339,17 +540,18 @@ Usage: ./manager.sh [FLAGS]
   --help                  Show this help
   --check                 Show missing libraries/tools
   --install               Install base libs (ca-certificates, curl, gnupg, lsb-release, jq, tmux)
-  --docker                Install Docker Engine + Compose v2, then build images (agent/generator/saver)
+  --docker                Install Docker Engine + Compose v2, then build images (agent/generator/saver/log-server)
   --start [--verbose]     Start mosquitto; with --verbose tails its logs
   --test                  Up mosquitto+agent+generator+saver & start collectors (malicious/normal)
-  --monitor               Structured MQTT feed (attacks only). Add --verbose for all telemetry; --monitor-all to also start generator
+  --monitor               Structured MQTT feed (attacks only) + log-server. Add --verbose for all telemetry; --monitor-all to also start generator
+  --full                  Enable FULL monitoring mode (auto-mint + upload new contract data)
   --mute                  Detach monitor (run in background; view feed: docker compose exec -T agent python -m tools.monitor)
   --overburst             Ruleaza un val “spicy” de trafic (vezi env OVER_*)
   --stop                  Stop all compose services
   --docker-purge          Remove project containers/images (no repo changes)
   --docker-reinstall      Purge Docker from system, reinstall, rebuild (asks confirm)
-  --solana [--silent]     Start Solana test validator (infra/testing_network). Without --silent streams logs; with --silent runs detached
-  --solana --stop         Stop Solana test validator (infra/testing_network)
+  --solana [--silent]     Start Solana test validator (uses solanaTestNetDocker submodule)
+  --solana --stop         Stop Solana test validator
   --local_network         [deprecated] Alias for --solana
 
 Env overrides:
@@ -364,9 +566,12 @@ HLP
     --verbose) VERBOSE=1 ;;
     --silent) SILENT=1 ;;
     --test) ACTION="test" ;;
+    --web) ACTION="web" ;;
+    --update) ACTION="update" ;;
     --solana) ACTION="solana" ;;
     --monitor) ACTION="monitor" ;;
     --monitor-all) MON_ALL=1 ;;
+    --full) FULL_MONITOR=1 ;;
     --mute) MUTE=1 ;;
     --overburst) ACTION="overburst" ;;
     --stop)
@@ -389,8 +594,10 @@ case "$ACTION" in
   check)            check_missing || exit 1 ;;
   install)          do_install_libs ;;
   docker)           docker_setup; build_images ;;
+  update)           do_update ;;
   start)            do_start "$VERBOSE" ;;
   test)             do_test ;;
+  web)              do_web ;;
   monitor)          do_monitor ;;
   overburst)        do_overburst ;;
   stop)             do_stop ;;

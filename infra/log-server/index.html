@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SentinelKarma - Download Logs</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 { font-size: 2.5em; margin-bottom: 10px; }
+        .header p { font-size: 1.1em; opacity: 0.9; }
+        .content { padding: 30px; }
+        .log-card {
+            background: #f8f9fa;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 15px;
+            transition: all 0.3s ease;
+        }
+        .log-card:hover {
+            border-color: #667eea;
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.2);
+            transform: translateY(-2px);
+        }
+        .log-title {
+            font-size: 1.1em;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .log-info {
+            font-size: 0.9em;
+            color: #666;
+            margin-bottom: 15px;
+        }
+        .log-info code {
+            background: #e9ecef;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+        .btn {
+            padding: 12px 24px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: all 0.3s ease;
+            margin-right: 10px;
+        }
+        .btn:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .btn-secondary {
+            background: #6c757d;
+        }
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+        .status {
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        .footer {
+            background: #f8f9fa;
+            padding: 20px;
+            text-align: center;
+            color: #666;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🛡️ SentinelKarma</h1>
+            <p>Contract Data Logs - Download Center</p>
+        </div>
+        
+        <div class="content">
+            <div id="status"></div>
+            
+            <div class="log-card">
+                <div class="log-title">📄 Log 1: cd_1760566500_15_10_25_22_15_00.log</div>
+                <div class="log-info">
+                    ID: <code>ed2336ded3a9213a</code> | Size: 295 bytes
+                </div>
+                <button class="btn" onclick="downloadLog('ed2336ded3a9213a', 'cd_1760566500_15_10_25_22_15_00.log')">
+                    ⬇️ Download
+                </button>
+                <button class="btn btn-secondary" onclick="viewMetadata('ed2336ded3a9213a')">
+                    📊 View Info
+                </button>
+            </div>
+            
+            <div class="log-card">
+                <div class="log-title">📄 Log 2: cd_1760566680_15_10_25_22_18_00.log</div>
+                <div class="log-info">
+                    ID: <code>76d2cac8a861f1b9</code> | Size: 295 bytes
+                </div>
+                <button class="btn" onclick="downloadLog('76d2cac8a861f1b9', 'cd_1760566680_15_10_25_22_18_00.log')">
+                    ⬇️ Download
+                </button>
+                <button class="btn btn-secondary" onclick="viewMetadata('76d2cac8a861f1b9')">
+                    📊 View Info
+                </button>
+            </div>
+            
+            <div class="log-card">
+                <div class="log-title">📄 Log 3: cd_1760566860_15_10_25_22_21_00.log</div>
+                <div class="log-info">
+                    ID: <code>e5fa5faa647ef4dc</code> | Size: 295 bytes
+                </div>
+                <button class="btn" onclick="downloadLog('e5fa5faa647ef4dc', 'cd_1760566860_15_10_25_22_21_00.log')">
+                    ⬇️ Download
+                </button>
+                <button class="btn btn-secondary" onclick="viewMetadata('e5fa5faa647ef4dc')">
+                    📊 View Info
+                </button>
+            </div>
+            
+            <div class="log-card">
+                <div class="log-title">📄 Log 4: cd_1760567040_15_10_25_22_24_00.log</div>
+                <div class="log-info">
+                    ID: <code>9c0847bcf2109be5</code> | Size: 295 bytes
+                </div>
+                <button class="btn" onclick="downloadLog('9c0847bcf2109be5', 'cd_1760567040_15_10_25_22_24_00.log')">
+                    ⬇️ Download
+                </button>
+                <button class="btn btn-secondary" onclick="viewMetadata('9c0847bcf2109be5')">
+                    📊 View Info
+                </button>
+            </div>
+            
+            <div class="log-card">
+                <div class="log-title">📄 Log 5: cd_1760567220_15_10_25_22_27_00.log</div>
+                <div class="log-info">
+                    ID: <code>e87c7c582c50b96a</code> | Size: 295 bytes
+                </div>
+                <button class="btn" onclick="downloadLog('e87c7c582c50b96a', 'cd_1760567220_15_10_25_22_27_00.log')">
+                    ⬇️ Download
+                </button>
+                <button class="btn btn-secondary" onclick="viewMetadata('e87c7c582c50b96a')">
+                    📊 View Info
+                </button>
+            </div>
+            
+            <div style="text-align: center; margin-top: 30px;">
+                <button class="btn" onclick="downloadAll()" style="font-size: 1.1em; padding: 15px 30px;">
+                    📦 Download All Logs
+                </button>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <p>SentinelKarma v0.1 - Decentralized Threat Intelligence Network</p>
+            <p>Server: <code>http://172.19.12.161:9000</code></p>
+        </div>
+    </div>
+    
+    <script>
+        const SERVER_URL = 'http://172.19.12.161:9000';
+        const PUBKEY = 'FKYCbhJfA4K5rVqFdunr55LXT6Qo5kbG5uxEPGkW1iCc';
+        
+        function showStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = `status ${type}`;
+            statusDiv.textContent = message;
+            statusDiv.style.display = 'block';
+            
+            if (type === 'success') {
+                setTimeout(() => {
+                    statusDiv.style.display = 'none';
+                }, 3000);
+            }
+        }
+        
+        async function downloadLog(logId, filename) {
+            showStatus(`Downloading ${filename}...`, 'info');
+            
+            try {
+                const timestamp = Math.floor(Date.now() / 1000);
+                const url = `${SERVER_URL}/logs/${logId}`;
+                
+                const response = await fetch(url, {
+                    headers: {
+                        'X-Peer-Pubkey': PUBKEY,
+                        'X-Timestamp': timestamp.toString(),
+                        'X-Signature': 'test'
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const blob = await response.blob();
+                const downloadUrl = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = downloadUrl;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(downloadUrl);
+                document.body.removeChild(a);
+                
+                showStatus(`✅ Downloaded: ${filename}`, 'success');
+            } catch (error) {
+                showStatus(`❌ Download failed: ${error.message}`, 'error');
+                console.error('Download error:', error);
+            }
+        }
+        
+        async function viewMetadata(logId) {
+            try {
+                const response = await fetch(`${SERVER_URL}/logs/${logId}/metadata`);
+                const metadata = await response.json();
+                
+                const formatted = JSON.stringify(metadata, null, 2);
+                alert(`Metadata for ${logId}:\n\n${formatted}`);
+            } catch (error) {
+                alert(`Failed to fetch metadata: ${error.message}`);
+            }
+        }
+        
+        async function downloadAll() {
+            const logs = [
+                {id: 'ed2336ded3a9213a', name: 'cd_1760566500_15_10_25_22_15_00.log'},
+                {id: '76d2cac8a861f1b9', name: 'cd_1760566680_15_10_25_22_18_00.log'},
+                {id: 'e5fa5faa647ef4dc', name: 'cd_1760566860_15_10_25_22_21_00.log'},
+                {id: '9c0847bcf2109be5', name: 'cd_1760567040_15_10_25_22_24_00.log'},
+                {id: 'e87c7c582c50b96a', name: 'cd_1760567220_15_10_25_22_27_00.log'}
+            ];
+            
+            showStatus('Downloading all logs...', 'info');
+            
+            for (const log of logs) {
+                await downloadLog(log.id, log.name);
+                await new Promise(resolve => setTimeout(resolve, 500)); // Small delay between downloads
+            }
+            
+            showStatus('✅ All logs downloaded!', 'success');
+        }
+        
+        // Test connection on load
+        window.addEventListener('load', async () => {
+            try {
+                const response = await fetch(`${SERVER_URL}/health`);
+                if (response.ok) {
+                    showStatus('✅ Connected to log server', 'success');
+                } else {
+                    showStatus('⚠️ Server responded but may have issues', 'error');
+                }
+            } catch (error) {
+                showStatus('❌ Cannot connect to server. Make sure it\'s running!', 'error');
+            }
+        });
+    </script>
+</body>
+</html>

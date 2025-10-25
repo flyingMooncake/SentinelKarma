@@ -13,6 +13,9 @@ RUN pip install --no-cache-dir \
 # Copy server code
 COPY server.py .
 
+# Copy download page
+COPY index.html /data/logs/index.html
+
 # Create data directory
 RUN mkdir -p /data/logs
 

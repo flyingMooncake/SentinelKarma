@@ -10,7 +10,8 @@ import hashlib
 import json
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Header, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import uvicorn
 
@@ -22,6 +23,7 @@ AUTHORIZED_PEERS_FILE = os.getenv("AUTHORIZED_PEERS_FILE", "/data/authorized_pee
 MY_PEER_URL = os.getenv("MY_PEER_URL", "http://localhost:9000")
 MAX_LOG_SIZE = int(os.getenv("MAX_LOG_SIZE", str(10 * 1024 * 1024)))  # 10MB
 MAX_STORAGE = int(os.getenv("MAX_STORAGE", str(1024 * 1024 * 1024)))  # 1GB
+TESTING_MODE = os.getenv("TESTING_MODE", "true").lower() == "true"  # Allow all for testing
 
 # Authorized peers (synced from blockchain)
 AUTHORIZED_PEERS = set()
@@ -94,6 +96,16 @@ async def startup():
     cleanup_old_logs()
 
 
+@app.get("/", response_class=HTMLResponse)
+async def root():
+    """Serve the download page"""
+    index_path = os.path.join(LOGS_DIR, "index.html")
+    if os.path.exists(index_path):
+        with open(index_path, 'r') as f:
+            return f.read()
+    return "<h1>SentinelKarma Log Server</h1><p>No index.html found</p>"
+
+
 @app.get("/health")
 async def health():
     """Health check endpoint"""
@@ -125,19 +137,23 @@ async def upload_log(
     - X-Timestamp: Current Unix timestamp
     - X-Signature: sign(filename + timestamp + pubkey)
     """
-    # Verify timestamp is recent (within 5 minutes)
-    now = int(time.time())
-    if abs(now - x_timestamp) > 300:
-        raise HTTPException(status_code=401, detail="Request expired")
-    
-    # Verify peer is authorized
-    if x_peer_pubkey not in AUTHORIZED_PEERS:
-        raise HTTPException(status_code=403, detail="Peer not authorized")
-    
-    # Verify signature
-    message = f"{file.filename}{x_timestamp}{x_peer_pubkey}".encode()
-    if not verify_signature(message, x_signature, x_peer_pubkey):
-        raise HTTPException(status_code=401, detail="Invalid signature")
+    # Skip auth in testing mode
+    if not TESTING_MODE:
+        # Verify timestamp is recent (within 5 minutes)
+        now = int(time.time())
+        if abs(now - x_timestamp) > 300:
+            raise HTTPException(status_code=401, detail="Request expired")
+        
+        # Verify peer is authorized
+        if x_peer_pubkey not in AUTHORIZED_PEERS:
+            raise HTTPException(status_code=403, detail="Peer not authorized")
+        
+        # Verify signature
+        message = f"{file.filename}{x_timestamp}{x_peer_pubkey}".encode()
+        if not verify_signature(message, x_signature, x_peer_pubkey):
+            raise HTTPException(status_code=401, detail="Invalid signature")
+    else:
+        print(f"[TESTING] Skipping auth for upload from {x_peer_pubkey[:8]}...")
     
     # Read file content
     content = await file.read()
@@ -197,24 +213,28 @@ async def download_log(
     - X-Timestamp: Current Unix timestamp
     - X-Signature: sign(log_id + timestamp + pubkey)
     """
-    # Verify timestamp is recent
-    now = int(time.time())
-    if abs(now - x_timestamp) > 300:
-        raise HTTPException(status_code=401, detail="Request expired")
-    
-    # Verify peer is authorized
-    if x_peer_pubkey not in AUTHORIZED_PEERS:
-        raise HTTPException(status_code=403, detail="Peer not authorized")
-    
-    # Verify signature
-    message = f"{log_id}{x_timestamp}{x_peer_pubkey}".encode()
-    if not verify_signature(message, x_signature, x_peer_pubkey):
-        raise HTTPException(status_code=401, detail="Invalid signature")
-    
-    # Check bandwidth limit (100MB per day per peer)
-    daily_limit = 100 * 1024 * 1024
-    if bandwidth_usage.get(x_peer_pubkey, 0) > daily_limit:
-        raise HTTPException(status_code=429, detail="Daily bandwidth limit exceeded")
+    # Skip auth in testing mode
+    if not TESTING_MODE:
+        # Verify timestamp is recent
+        now = int(time.time())
+        if abs(now - x_timestamp) > 300:
+            raise HTTPException(status_code=401, detail="Request expired")
+        
+        # Verify peer is authorized
+        if x_peer_pubkey not in AUTHORIZED_PEERS:
+            raise HTTPException(status_code=403, detail="Peer not authorized")
+        
+        # Verify signature
+        message = f"{log_id}{x_timestamp}{x_peer_pubkey}".encode()
+        if not verify_signature(message, x_signature, x_peer_pubkey):
+            raise HTTPException(status_code=401, detail="Invalid signature")
+        
+        # Check bandwidth limit (100MB per day per peer)
+        daily_limit = 100 * 1024 * 1024
+        if bandwidth_usage.get(x_peer_pubkey, 0) > daily_limit:
+            raise HTTPException(status_code=429, detail="Daily bandwidth limit exceeded")
+    else:
+        print(f"[TESTING] Skipping auth for download of {log_id} by {x_peer_pubkey[:8]}...")
     
     # Check if log exists
     log_path = os.path.join(LOGS_DIR, f"{log_id}.log")

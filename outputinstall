@@ -1,0 +1,140 @@
+[1;34m[INFO][0m Installing base tools (jq, tmux, nodejs, etc)…
+Hit:1 http://archive.ubuntu.com/ubuntu jammy InRelease
+Hit:2 http://archive.ubuntu.com/ubuntu jammy-updates InRelease
+Hit:3 http://archive.ubuntu.com/ubuntu jammy-backports InRelease
+Hit:4 https://deb.nodesource.com/node_20.x nodistro InRelease
+Hit:5 http://security.ubuntu.com/ubuntu jammy-security InRelease
+Hit:6 https://ppa.launchpadcontent.net/ethereum/ethereum/ubuntu jammy InRelease
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+lsb-release is already the newest version (11.1.0ubuntu4).
+ca-certificates is already the newest version (20240203~22.04.1).
+curl is already the newest version (7.81.0-1ubuntu1.21).
+git is already the newest version (1:2.34.1-1ubuntu1.15).
+gnupg is already the newest version (2.2.27-3ubuntu2.4).
+jq is already the newest version (1.6-2.1ubuntu3.1).
+procps is already the newest version (2:3.3.17-6ubuntu2.1).
+tmux is already the newest version (3.2a-4ubuntu0.2).
+wget is already the newest version (1.21.2-2ubuntu1.1).
+The following packages were automatically installed and are no longer required:
+  gyp libfile-basedir-perl libfile-desktopentry-perl libfile-mimeinfo-perl
+  libgtkd-3-0 libio-stringy-perl libipc-system-simple-perl libjs-events
+  libjs-highlight.js libjs-inherits libjs-is-typedarray libjs-psl
+  libjs-source-map libjs-sprintf-js libjs-typedarray-to-buffer libllvm11
+  libnet-dbus-perl libnode-dev libnotify-bin libphobos2-ldc-shared98
+  libtie-ixhash-perl libuv1-dev libvte-2.91-0 libvte-2.91-common libvted-3-0
+  libx11-protocol-perl libxft2 libxml-parser-perl libxml-twig-perl
+  libxml-xpathengine-perl libxv1 libxxf86dga1 node-abab node-abbrev
+  node-agent-base node-ansi-regex node-ansi-styles node-ansistyles node-aproba
+  node-archy node-are-we-there-yet node-argparse node-arrify node-asap
+  node-asynckit node-balanced-match node-brace-expansion node-builtins
+  node-chalk node-chownr node-clean-yaml-object node-cli-table node-clone
+  node-color-convert node-color-name node-colors node-columnify
+  node-combined-stream node-commander node-console-control-strings
+  node-core-util-is node-cssom node-cssstyle node-debug
+  node-decompress-response node-defaults node-delayed-stream node-delegates
+  node-depd node-diff node-encoding node-end-of-stream node-err-code
+  node-escape-string-regexp node-events node-fancy-log node-foreground-child
+  node-fs-write-stream-atomic node-fs.realpath node-function-bind node-gauge
+  node-get-stream node-glob node-got node-graceful-fs node-growl node-has-flag
+  node-has-unicode node-hosted-git-info node-https-proxy-agent node-iconv-lite
+  node-iferr node-imurmurhash node-indent-string node-inflight node-inherits
+  node-ini node-ip node-ip-regex node-is-buffer node-is-plain-obj
+  node-is-typedarray node-isarray node-isexe node-json-buffer
+  node-json-parse-better-errors node-jsonparse node-kind-of node-lcov-parse
+  node-lodash-packages node-log-driver node-lowercase-keys node-lru-cache
+  node-mimic-response node-minimatch node-minimist node-minipass node-ms
+  node-mute-stream node-negotiator node-normalize-package-data
+  node-npm-bundled node-npm-package-arg node-npmlog node-object-assign
+  node-once node-osenv node-p-cancelable node-p-map node-path-is-absolute
+  node-process-nextick-args node-promise-inflight node-promise-retry
+  node-promzard node-psl node-pump node-punycode node-quick-lru node-read
+  node-read-package-json node-readable-stream node-resolve node-retry
+  node-rimraf node-run-queue node-safe-buffer node-semver node-set-blocking
+  node-signal-exit node-slash node-slice-ansi node-source-map
+  node-source-map-support node-spdx-correct node-spdx-exceptions
+  node-spdx-expression-parse node-spdx-license-ids node-sprintf-js node-ssri
+  node-stack-utils node-stealthy-require node-string-decoder node-string-width
+  node-strip-ansi node-supports-color node-text-table node-time-stamp
+  node-tmatch node-tough-cookie node-typedarray-to-buffer node-unique-filename
+  node-universalify node-util-deprecate node-validate-npm-package-license
+  node-validate-npm-package-name node-wcwidth.js node-webidl-conversions
+  node-whatwg-fetch node-wide-align node-wrappy node-write-file-atomic
+  node-yallist tilix tilix-common x11-utils x11-xserver-utils xdg-utils
+Use 'sudo apt autoremove' to remove them.
+0 upgraded, 0 newly installed, 0 to remove and 21 not upgraded.
+[1;34m[INFO][0m Installing Node.js 20.x…
+[38;5;79m2025-10-25 16:53:49 - Installing pre-requisites[0m
+Hit:1 http://archive.ubuntu.com/ubuntu jammy InRelease
+Hit:2 http://archive.ubuntu.com/ubuntu jammy-updates InRelease
+Hit:3 http://archive.ubuntu.com/ubuntu jammy-backports InRelease
+Hit:4 http://security.ubuntu.com/ubuntu jammy-security InRelease
+Hit:5 https://deb.nodesource.com/node_20.x nodistro InRelease
+Hit:6 https://ppa.launchpadcontent.net/ethereum/ethereum/ubuntu jammy InRelease
+Reading package lists...
+Building dependency tree...
+Reading state information...
+21 packages can be upgraded. Run 'apt list --upgradable' to see them.
+Reading package lists...
+Building dependency tree...
+Reading state information...
+ca-certificates is already the newest version (20240203~22.04.1).
+curl is already the newest version (7.81.0-1ubuntu1.21).
+gnupg is already the newest version (2.2.27-3ubuntu2.4).
+apt-transport-https is already the newest version (2.4.14).
+The following packages were automatically installed and are no longer required:
+  gyp libfile-basedir-perl libfile-desktopentry-perl libfile-mimeinfo-perl
+  libgtkd-3-0 libio-stringy-perl libipc-system-simple-perl libjs-events
+  libjs-highlight.js libjs-inherits libjs-is-typedarray libjs-psl
+  libjs-source-map libjs-sprintf-js libjs-typedarray-to-buffer libllvm11
+  libnet-dbus-perl libnode-dev libnotify-bin libphobos2-ldc-shared98
+  libtie-ixhash-perl libuv1-dev libvte-2.91-0 libvte-2.91-common libvted-3-0
+  libx11-protocol-perl libxft2 libxml-parser-perl libxml-twig-perl
+  libxml-xpathengine-perl libxv1 libxxf86dga1 node-abab node-abbrev
+  node-agent-base node-ansi-regex node-ansi-styles node-ansistyles node-aproba
+  node-archy node-are-we-there-yet node-argparse node-arrify node-asap
+  node-asynckit node-balanced-match node-brace-expansion node-builtins
+  node-chalk node-chownr node-clean-yaml-object node-cli-table node-clone
+  node-color-convert node-color-name node-colors node-columnify
+  node-combined-stream node-commander node-console-control-strings
+  node-core-util-is node-cssom node-cssstyle node-debug
+  node-decompress-response node-defaults node-delayed-stream node-delegates
+  node-depd node-diff node-encoding node-end-of-stream node-err-code
+  node-escape-string-regexp node-events node-fancy-log node-foreground-child
+  node-fs-write-stream-atomic node-fs.realpath node-function-bind node-gauge
+  node-get-stream node-glob node-got node-graceful-fs node-growl node-has-flag
+  node-has-unicode node-hosted-git-info node-https-proxy-agent node-iconv-lite
+  node-iferr node-imurmurhash node-indent-string node-inflight node-inherits
+  node-ini node-ip node-ip-regex node-is-buffer node-is-plain-obj
+  node-is-typedarray node-isarray node-isexe node-json-buffer
+  node-json-parse-better-errors node-jsonparse node-kind-of node-lcov-parse
+  node-lodash-packages node-log-driver node-lowercase-keys node-lru-cache
+  node-mimic-response node-minimatch node-minimist node-minipass node-ms
+  node-mute-stream node-negotiator node-normalize-package-data
+  node-npm-bundled node-npm-package-arg node-npmlog node-object-assign
+  node-once node-osenv node-p-cancelable node-p-map node-path-is-absolute
+  node-process-nextick-args node-promise-inflight node-promise-retry
+  node-promzard node-psl node-pump node-punycode node-quick-lru node-read
+  node-read-package-json node-readable-stream node-resolve node-retry
+  node-rimraf node-run-queue node-safe-buffer node-semver node-set-blocking
+  node-signal-exit node-slash node-slice-ansi node-source-map
+  node-source-map-support node-spdx-correct node-spdx-exceptions
+  node-spdx-expression-parse node-spdx-license-ids node-sprintf-js node-ssri
+  node-stack-utils node-stealthy-require node-string-decoder node-string-width
+  node-strip-ansi node-supports-color node-text-table node-time-stamp
+  node-tmatch node-tough-cookie node-typedarray-to-buffer node-unique-filename
+  node-universalify node-util-deprecate node-validate-npm-package-license
+  node-validate-npm-package-name node-wcwidth.js node-webidl-conversions
+  node-whatwg-fetch node-wide-align node-wrappy node-write-file-atomic
+  node-yallist tilix tilix-common x11-utils x11-xserver-utils xdg-utils
+Use 'sudo apt autoremove' to remove them.
+0 upgraded, 0 newly installed, 0 to remove and 21 not upgraded.
+Hit:1 http://archive.ubuntu.com/ubuntu jammy InRelease
+Hit:2 http://archive.ubuntu.com/ubuntu jammy-updates InRelease
+Hit:3 https://deb.nodesource.com/node_20.x nodistro InRelease
+Hit:4 http://archive.ubuntu.com/ubuntu jammy-backports InRelease
+Hit:5 http://security.ubuntu.com/ubuntu jammy-security InRelease
+Hit:6 https://ppa.launchpadcontent.net/ethereum/ethereum/ubuntu jammy InRelease
+Reading package lists...

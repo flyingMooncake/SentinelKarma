@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SentinelKarma NFT Mint Data",
+  "description": "Schema for minting NFT logs on Sentinel contract",
+  "type": "object",
+  "required": ["log_url", "file_hash"],
+  "properties": {
+    "log_url": {
+      "type": "string",
+      "description": "HTTP URL to the log file hosted on log server",
+      "maxLength": 200,
+      "pattern": "^https?://",
+      "examples": [
+        "http://172.19.12.161:9000/logs/ed2336ded3a9213a",
+        "http://localhost:9000/logs/abc123def456"
+      ]
+    },
+    "file_hash": {
+      "type": "string",
+      "description": "SHA256 hash of the log file (hex string, 64 characters)",
+      "pattern": "^[a-fA-F0-9]{64}$",
+      "minLength": 64,
+      "maxLength": 64,
+      "examples": [
+        "ed2336ded3a9213a3aa1f7a0a563527a5549d243b0970e482e257bc374b72cd6"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

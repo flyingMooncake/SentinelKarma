@@ -1,0 +1,3 @@
+[submodule "solanaTestNetDocker"]
+	path = solanaTestNetDocker
+	url = https://github.com/flyingMooncake/solanaTestNetDocker
