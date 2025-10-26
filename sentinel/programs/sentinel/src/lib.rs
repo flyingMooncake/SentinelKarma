@@ -1,5 +1,4 @@
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::clock::Clock;
 use anchor_lang::solana_program::program_option::COption;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer, MintTo, SetAuthority};
 use anchor_spl::associated_token::AssociatedToken;
@@ -19,7 +18,7 @@ const MAX_PEER_REWARD_PCT: u64 = 10; // 10%
 const CYCLE_SECONDS: i64 = 2 * 60 * 60; // 2 hours
 const INITIAL_MINT_SUPPLY: u64 = 100_000 * 10u64.pow(SENTINEL_DECIMALS as u32);
 
-declare_id!("Da3fi9D86CM262Xbu8nCwiJRNc6wEgSoKH1cw3p1MA8V");
+declare_id!("7e5HppSuDGkqSjgKNfC62saPoJR5LBkYMuQHkv59eDY7");
 
 #[program]
 pub mod sentinel {
@@ -80,14 +79,12 @@ pub mod sentinel {
         peer.user = ctx.accounts.user.key();
         peer.active = true;
         peer.karma = 0;
-        // bump not stored
 
         Ok(())
     }
 
-    pub fn mint_nft(ctx: Context<MintNft>, log_url: String, file_hash: [u8; 32]) -> Result<()> {
+    pub fn mint_nft(ctx: Context<MintNft>, hash: [u8; 32], db_addr: Pubkey) -> Result<()> {
         require!(ctx.accounts.peer.active, SentinelError::NotPeer);
-        require!(log_url.len() <= 200, SentinelError::UrlTooLong);
 
         // Mint the NFT (1 token of a new mint with 0 decimals) to user
         let cpi_ctx = CpiContext::new(
@@ -104,11 +101,10 @@ pub mod sentinel {
         let post = &mut ctx.accounts.post;
         post.owner = ctx.accounts.user.key();
         post.nft_mint = ctx.accounts.nft_mint.key();
-        post.log_url = log_url;
-        post.file_hash = file_hash;
+        post.hash = hash;
+        post.db_addr = db_addr;
         post.likes = 0;
         post.cycle_index = ctx.accounts.state.cycle_index;
-        // bump not stored
 
         Ok(())
     }
@@ -118,8 +114,12 @@ pub mod sentinel {
         let post = &mut ctx.accounts.post;
         let liked_peer = &mut ctx.accounts.liked_peer;
         let liker_peer = &ctx.accounts.liker_peer;
+        
         require!(liked_peer.active, SentinelError::NotPeer);
         require!(liker_peer.active, SentinelError::NotPeer);
+        
+        // Prevent self-liking
+        require!(ctx.accounts.liker.key() != post.owner, SentinelError::CannotLikeSelf);
 
         post.likes = post
             .likes
@@ -137,10 +137,21 @@ pub mod sentinel {
         Ok(())
     }
 
-    pub fn finalize_cycle<'info>(ctx: Context<'_, '_, '_, 'info, FinalizeCycle<'info>>, peers: Vec<Pubkey>, karmas: Vec<u64>) -> Result<()> {
+    pub fn finalize_cycle<'info>(
+        ctx: Context<'_, '_, '_, 'info, FinalizeCycle<'info>>, 
+        peers: Vec<Pubkey>, 
+        karmas: Vec<u64>
+    ) -> Result<()> {
         let now = Clock::get()?.unix_timestamp;
-        require!(now - ctx.accounts.state.cycle_start_ts >= CYCLE_SECONDS, SentinelError::CycleNotEnded);
+        require!(
+            now - ctx.accounts.state.cycle_start_ts >= CYCLE_SECONDS, 
+            SentinelError::CycleNotEnded
+        );
         require!(peers.len() == karmas.len(), SentinelError::InvalidInput);
+        require!(
+            peers.len() == ctx.remaining_accounts.len(), 
+            SentinelError::InvalidInput
+        );
 
         // Compute total karma
         let total_karma: u128 = karmas.iter().map(|k| *k as u128).sum();
@@ -148,33 +159,50 @@ pub mod sentinel {
         // Edge case: no karma -> nothing to distribute, just advance cycle
         if total_karma == 0 {
             ctx.accounts.state.cycle_start_ts = now;
-            ctx.accounts.state.cycle_index = ctx.accounts.state.cycle_index.checked_add(1).ok_or(SentinelError::Overflow)?;
+            ctx.accounts.state.cycle_index = ctx.accounts.state
+                .cycle_index
+                .checked_add(1)
+                .ok_or(SentinelError::Overflow)?;
             return Ok(());
         }
 
-        // Prepare signer seeds for state PDA mint authority (compute bump)
+        // Prepare signer seeds for state PDA mint authority
         let (_, state_bump) = Pubkey::find_program_address(&[STATE_SEED], &crate::ID);
         let signer_seeds: &[&[u8]] = &[STATE_SEED, &[state_bump]];
         let signer = &[signer_seeds];
 
         for (i, peer_pubkey) in peers.iter().enumerate() {
             let karma = karmas[i] as u128;
-            if karma == 0 { continue; }
+            if karma == 0 { 
+                continue; 
+            }
+            
             // Proportional share
             let mut reward: u128 = (karma * CYCLE_REWARD_TOTAL as u128) / total_karma;
+            
             // Cap at 10%
             let cap: u128 = (CYCLE_REWARD_TOTAL as u128 * MAX_PEER_REWARD_PCT as u128) / 100u128;
-            if reward > cap { reward = cap; }
+            if reward > cap { 
+                reward = cap; 
+            }
             let reward_u64: u64 = reward as u64;
 
-            // Mint reward to peer's ATA passed in accounts via remaining_accounts mapping
-            let ata_info = ctx.remaining_accounts.get(i).ok_or(SentinelError::MissingAccount)?;
+            // Get peer's ATA from remaining_accounts
+            let ata_info = ctx.remaining_accounts
+                .get(i)
+                .ok_or(SentinelError::MissingAccount)?;
 
-            // Validate ATA is the canonical associated token address for (peer_pubkey, sentinel_mint)
-            let expected_ata = anchor_spl::associated_token::get_associated_token_address(peer_pubkey, &ctx.accounts.sentinel_mint.key());
-            require!(*ata_info.key == expected_ata, SentinelError::InvalidAccount);
+            // Validate ATA is the canonical associated token address
+            let expected_ata = anchor_spl::associated_token::get_associated_token_address(
+                peer_pubkey, 
+                &ctx.accounts.sentinel_mint.key()
+            );
+            require!(
+                *ata_info.key == expected_ata, 
+                SentinelError::InvalidAccount
+            );
 
-            // Mint directly from sentinel mint with state as mint authority
+            // Mint reward to peer's ATA
             let cpi_ctx = CpiContext::new(
                 ctx.accounts.token_program.to_account_info(),
                 MintTo {
@@ -186,14 +214,26 @@ pub mod sentinel {
             token::mint_to(cpi_ctx.with_signer(signer), reward_u64)?;
         }
 
-        // Reset karmas is delegated to off-chain indexing; keep on-chain simple to avoid huge loops updating many PDAs.
         // Advance cycle
         ctx.accounts.state.cycle_start_ts = now;
-        ctx.accounts.state.cycle_index = ctx.accounts.state.cycle_index.checked_add(1).ok_or(SentinelError::Overflow)?;
+        ctx.accounts.state.cycle_index = ctx.accounts.state
+            .cycle_index
+            .checked_add(1)
+            .ok_or(SentinelError::Overflow)?;
 
         Ok(())
     }
+
+    pub fn reset_karma(ctx: Context<ResetKarma>) -> Result<()> {
+        let peer = &mut ctx.accounts.peer;
+        peer.karma = 0;
+        Ok(())
+    }
 }
+
+// ============================================================================
+// Account Contexts
+// ============================================================================
 
 #[derive(Accounts)]
 pub struct Initialize<'info> {
@@ -209,7 +249,6 @@ pub struct Initialize<'info> {
     )]
     pub state: Account<'info, State>,
 
-    // Sentinel mint owned by state PDA as mint authority; created by authority
     #[account(
         init,
         payer = authority,
@@ -236,7 +275,6 @@ pub struct Initialize<'info> {
     )]
     pub authority_sentinel_ata: Account<'info, TokenAccount>,
 
-    // Treasury vault ATA to hold JOIN fees
     #[account(
         init,
         payer = authority,
@@ -245,7 +283,6 @@ pub struct Initialize<'info> {
     )]
     pub treasury_sentinel_ata: Account<'info, TokenAccount>,
 
-    
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
@@ -257,6 +294,10 @@ pub struct JoinNetwork<'info> {
     #[account(mut)]
     pub user: Signer<'info>,
 
+    #[account(
+        seeds = [STATE_SEED],
+        bump,
+    )]
     pub state: Account<'info, State>,
 
     #[account(
@@ -270,18 +311,21 @@ pub struct JoinNetwork<'info> {
 
     #[account(
         mut,
-        constraint = user_sentinel_ata.mint == state.sentinel_mint,
-        constraint = user_sentinel_ata.owner == user.key(),
+        constraint = user_sentinel_ata.mint == state.sentinel_mint @ SentinelError::InvalidAccount,
+        constraint = user_sentinel_ata.owner == user.key() @ SentinelError::InvalidAccount,
     )]
     pub user_sentinel_ata: Account<'info, TokenAccount>,
 
-    #[account(mut)]
+    #[account(
+        seeds = [TREASURY_VAULT_SEED],
+        bump,
+    )]
     pub treasury_vault: Account<'info, TreasuryVault>,
 
     #[account(
         mut,
-        constraint = treasury_sentinel_ata.mint == state.sentinel_mint,
-        constraint = treasury_sentinel_ata.owner == treasury_vault.key(),
+        constraint = treasury_sentinel_ata.mint == state.sentinel_mint @ SentinelError::InvalidAccount,
+        constraint = treasury_sentinel_ata.owner == treasury_vault.key() @ SentinelError::InvalidAccount,
     )]
     pub treasury_sentinel_ata: Account<'info, TokenAccount>,
 
@@ -294,21 +338,24 @@ pub struct MintNft<'info> {
     #[account(mut)]
     pub user: Signer<'info>,
 
+    #[account(
+        seeds = [STATE_SEED],
+        bump,
+    )]
     pub state: Account<'info, State>,
 
     #[account(
         mut,
         seeds = [PEER_SEED, user.key().as_ref()],
         bump,
-        constraint = peer.user == user.key(),
+        constraint = peer.user == user.key() @ SentinelError::InvalidAccount,
     )]
     pub peer: Account<'info, PeerState>,
 
-    // new NFT mint created ahead of time by client: must have 0 decimals & authority user
     #[account(
         mut,
-        constraint = nft_mint.decimals == 0,
-        constraint = nft_mint.mint_authority == COption::Some(user.key()),
+        constraint = nft_mint.decimals == 0 @ SentinelError::InvalidNftMint,
+        constraint = nft_mint.mint_authority == COption::Some(user.key()) @ SentinelError::InvalidNftMint,
     )]
     pub nft_mint: Account<'info, Mint>,
 
@@ -340,6 +387,10 @@ pub struct LikeNft<'info> {
     #[account(mut)]
     pub liker: Signer<'info>,
 
+    #[account(
+        seeds = [STATE_SEED],
+        bump,
+    )]
     pub state: Account<'info, State>,
 
     #[account(
@@ -354,21 +405,19 @@ pub struct LikeNft<'info> {
     #[account(mut)]
     pub post: Account<'info, Post>,
 
-    // Peer whose karma increases: the post owner
     #[account(
         mut,
         seeds = [PEER_SEED, post.owner.as_ref()],
         bump,
-        constraint = liked_peer.user == post.owner,
+        constraint = liked_peer.user == post.owner @ SentinelError::InvalidAccount,
     )]
     pub liked_peer: Account<'info, PeerState>,
 
-    // Liker must also be an active peer
     #[account(
         seeds = [PEER_SEED, liker.key().as_ref()],
         bump,
-        constraint = liker_peer.user == liker.key(),
-        constraint = liker_peer.active,
+        constraint = liker_peer.user == liker.key() @ SentinelError::InvalidAccount,
+        constraint = liker_peer.active @ SentinelError::NotPeer,
     )]
     pub liker_peer: Account<'info, PeerState>,
 
@@ -377,82 +426,139 @@ pub struct LikeNft<'info> {
 
 #[derive(Accounts)]
 pub struct FinalizeCycle<'info> {
-    #[account(mut, address = state.authority)]
+    #[account(
+        mut, 
+        address = state.authority @ SentinelError::Unauthorized
+    )]
     pub authority: Signer<'info>,
 
-    #[account(mut, seeds = [STATE_SEED], bump)]
+    #[account(
+        mut, 
+        seeds = [STATE_SEED], 
+        bump
+    )]
     pub state: Account<'info, State>,
 
-    #[account(mut)]
+    #[account(
+        mut,
+        constraint = sentinel_mint.key() == state.sentinel_mint @ SentinelError::InvalidAccount,
+    )]
     pub sentinel_mint: Account<'info, Mint>,
 
     pub token_program: Program<'info, Token>,
 }
 
+#[derive(Accounts)]
+pub struct ResetKarma<'info> {
+    #[account(
+        mut,
+        address = state.authority @ SentinelError::Unauthorized
+    )]
+    pub authority: Signer<'info>,
+
+    #[account(
+        seeds = [STATE_SEED],
+        bump,
+    )]
+    pub state: Account<'info, State>,
+
+    #[account(
+        mut,
+        seeds = [PEER_SEED, peer.user.as_ref()],
+        bump,
+    )]
+    pub peer: Account<'info, PeerState>,
+}
+
+// ============================================================================
+// Account Structures
+// ============================================================================
+
 #[account]
 pub struct State {
-    pub authority: Pubkey,
-    pub sentinel_mint: Pubkey,
-    pub treasury_vault: Pubkey,
-    pub cycle_start_ts: i64,
-    pub cycle_index: u64,
-    }
+    pub authority: Pubkey,          // 32
+    pub sentinel_mint: Pubkey,      // 32
+    pub treasury_vault: Pubkey,     // 32
+    pub cycle_start_ts: i64,        // 8
+    pub cycle_index: u64,           // 8
+}
+
 impl State {
-    pub const SIZE: usize = 112; // 32 + 32 + 32 + 8 + 8
+    pub const SIZE: usize = 32 + 32 + 32 + 8 + 8;
 }
 
 #[account]
 pub struct TreasuryVault {}
+
 impl TreasuryVault {
-    pub const SIZE: usize = 8; // minimal size for empty account
+    pub const SIZE: usize = 0;
 }
 
 #[account]
 pub struct PeerState {
-    pub user: Pubkey,
-    pub active: bool,
-    pub karma: u64,
-    }
+    pub user: Pubkey,               // 32
+    pub active: bool,               // 1
+    pub karma: u64,                 // 8
+}
+
 impl PeerState {
-    pub const SIZE: usize = 48; // 32 + 1 + 8 + padding
+    pub const SIZE: usize = 32 + 1 + 8;
 }
 
 #[account]
 pub struct Post {
-    pub owner: Pubkey,
-    pub nft_mint: Pubkey,
-    pub log_url: String,        // HTTP URL to log file (max 200 chars)
-    pub file_hash: [u8; 32],    // SHA256 hash of log file
-    pub likes: u64,
-    pub cycle_index: u64,
-    }
+    pub owner: Pubkey,              // 32
+    pub nft_mint: Pubkey,           // 32
+    pub hash: [u8; 32],             // 32
+    pub db_addr: Pubkey,            // 32
+    pub likes: u64,                 // 8
+    pub cycle_index: u64,           // 8
+}
+
 impl Post {
-    pub const SIZE: usize = 320; // 32 + 32 + (4 + 200) + 32 + 8 + 8
+    pub const SIZE: usize = 32 + 32 + 32 + 32 + 8 + 8;
 }
 
 #[account]
 pub struct Like {
-    pub liker: Pubkey,
-    pub post: Pubkey,
-    }
-impl Like {
-    pub const SIZE: usize = 64; // 32 + 32
+    pub liker: Pubkey,              // 32
+    pub post: Pubkey,               // 32
 }
+
+impl Like {
+    pub const SIZE: usize = 32 + 32;
+}
+
+// ============================================================================
+// Error Codes
+// ============================================================================
 
 #[error_code]
 pub enum SentinelError {
     #[msg("Math overflow")]
     Overflow,
+    
     #[msg("User is not an active peer")]
     NotPeer,
+    
     #[msg("Cycle not ended yet")]
     CycleNotEnded,
+    
     #[msg("Invalid input vectors")]
     InvalidInput,
+    
     #[msg("Missing remaining account for reward ATA")]
     MissingAccount,
+    
     #[msg("Invalid account data")]
     InvalidAccount,
-    #[msg("Log URL too long (max 200 characters)")]
-    UrlTooLong,
+    
+    #[msg("Invalid NFT mint (must be 0 decimals with user as authority)")]
+    InvalidNftMint,
+    
+    #[msg("Cannot like your own post")]
+    CannotLikeSelf,
+    
+    #[msg("Unauthorized")]
+    Unauthorized,
 }

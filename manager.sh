@@ -245,10 +245,21 @@ do_monitor(){
   [[ -f docker-compose.yml ]] || die "Missing docker-compose.yml"
   [[ -n "$DCCMD" ]] || die "Compose not available. Run: $0 --docker"
   info "Ensuring services are up…"
-  if [[ "${MON_ALL:-0}" -eq 1 ]]; then
-    dc up -d mosquitto agent saver generator log-server
+  
+  # Start web if WEB_ENABLED flag is set
+  if [[ "${WEB_ENABLED:-0}" -eq 1 ]]; then
+    if [[ "${MON_ALL:-0}" -eq 1 ]]; then
+      dc up -d mosquitto agent saver generator log-server web
+    else
+      dc up -d mosquitto agent saver log-server web
+    fi
+    info "Web dashboard starting at http://localhost:3000"
   else
-    dc up -d mosquitto agent saver log-server
+    if [[ "${MON_ALL:-0}" -eq 1 ]]; then
+      dc up -d mosquitto agent saver generator log-server
+    else
+      dc up -d mosquitto agent saver log-server
+    fi
   fi
   
   # Wait for log-server to be healthy
@@ -262,30 +273,50 @@ do_monitor(){
     sleep 1
   done
   
-  # If --full flag, start auto-mint monitor
+  # Wait for web if enabled
+  if [[ "${WEB_ENABLED:-0}" -eq 1 ]]; then
+    info "Waiting for web dashboard to be ready…"
+    for i in {1..30}; do
+      if curl -sf http://localhost:3000 >/dev/null 2>&1; then
+        info "✓ Web dashboard is ready at http://localhost:3000"
+        break
+      fi
+      [[ $i -eq 30 ]] && warn "Web dashboard health check timeout (may still be starting)"
+      sleep 1
+    done
+  fi
+  
+  # If --full flag, start auto-mint monitor with NFT minting
   if [[ "${FULL_MONITOR:-0}" -eq 1 ]]; then
-    info "Starting FULL monitoring mode (auto-mint + upload)..."
-    info "This will automatically process new contract data files"
+    info "Starting FULL monitoring mode (auto-mint + upload + NFT minting)..."
+    info "This will automatically process malicious logs and mint NFTs"
+    info "Config: scripts/auto_mint.conf"
     
-    if [[ ! -f "scripts/auto_mint_monitor.py" ]]; then
-      err "Auto-mint monitor script not found!"
+    if [[ ! -f "scripts/auto_mint_complete.py" ]]; then
+      err "Auto-mint complete script not found!"
       return 1
     fi
     
-    chmod +x scripts/auto_mint_monitor.py 2>/dev/null || true
-    python3 scripts/auto_mint_monitor.py
+    chmod +x scripts/auto_mint_complete.py 2>/dev/null || true
+    python3 scripts/auto_mint_complete.py
     return 0
   fi
   
   if [[ "${MUTE:-0}" -eq 1 ]]; then
     info "Monitor started in background. Structured feed available via: $DCCMD exec -T agent python -m tools.monitor"
     info "Log server running at http://localhost:9000 (health: http://localhost:9000/health)"
+    if [[ "${WEB_ENABLED:-0}" -eq 1 ]]; then
+      info "Web dashboard running at http://localhost:3000"
+    fi
     return 0
   fi
   local vflag="0"
   [[ "${VERBOSE:-0}" -eq 1 ]] && vflag="1"
   info "Streaming structured MQTT feed (attacks-only by default; use --verbose for all)…"
   info "Log server running at http://localhost:9000"
+  if [[ "${WEB_ENABLED:-0}" -eq 1 ]]; then
+    info "Web dashboard running at http://localhost:3000"
+  fi
   MONITOR_VERBOSE="$vflag" $DCCMD exec -T agent python -m tools.monitor
 }
 
@@ -366,7 +397,13 @@ do_update(){
   info "Services have been restarted with the latest version."
 }
 
-do_stop(){ info "Stopping stack…"; dc down --remove-orphans || true; }
+do_stop(){ 
+  info "Stopping SentinelKarma services (excluding Solana validator)…"
+  # Stop specific services, not the entire stack
+  dc stop mosquitto agent generator saver log-server web 2>/dev/null || true
+  dc rm -f mosquitto agent generator saver log-server web 2>/dev/null || true
+  info "Services stopped. Solana validator (if running) was not affected."
+}
 
 docker_purge_project(){
   info "Purging project containers/images…"
@@ -572,6 +609,13 @@ HLP
     --monitor) ACTION="monitor" ;;
     --monitor-all) MON_ALL=1 ;;
     --full) FULL_MONITOR=1 ;;
+    --web) 
+      if [[ "$ACTION" == "monitor" ]]; then
+        WEB_ENABLED=1
+      else
+        ACTION="web"
+      fi
+      ;;
     --mute) MUTE=1 ;;
     --overburst) ACTION="overburst" ;;
     --stop)

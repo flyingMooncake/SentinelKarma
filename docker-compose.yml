@@ -65,7 +65,7 @@ services:
 
       # rotații
       NORMAL_ROTATE_SECS: "1800"         # 30 min
-      MALICIOUS_ROTATE_SECS: "180"       # 3 min
+      MALICIOUS_ROTATE_SECS: "30"        # 30 seconds - generates contract files every 30s
 
       # retenție
       NORMAL_TTL_MINS: "120"             # 2 ore (poți pune "60" pt 1 oră sau "30" pt jumate)
@@ -91,19 +91,37 @@ services:
       SERVER_HOST: "0.0.0.0"
       SERVER_PORT: "9000"
       LOGS_DIR: /data/logs
+      CONTRACT_DIR: /data/contract_data
       AUTHORIZED_PEERS_FILE: /data/authorized_peers.txt
       MY_PEER_URL: "${MY_PEER_URL:-http://localhost:9000}"
       MAX_LOG_SIZE: "10485760"  # 10MB
       MAX_STORAGE: "1073741824"  # 1GB
     volumes:
       - ./data/logs:/data/logs
+      - ./data/contract_data:/data/contract_data:ro
       - ./data/authorized_peers.txt:/data/authorized_peers.txt:ro
       - ./data/malicious_logs:/data/malicious_logs:ro
+      - ./scripts:/app/scripts:ro
+      - ~/.config/solana:/root/.config/solana:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9000/health')"]
       interval: 30s
       timeout: 5s
       retries: 3
+
+  nft-sync:
+    build: ./agent-python
+    image: sentinelkarma-agent
+    container_name: nft-sync-daemon
+    restart: unless-stopped
+    command: ["python3", "/app/nft_sync_daemon.py"]
+    volumes:
+      - ./scripts/nft_sync_daemon.py:/app/nft_sync_daemon.py:ro
+      - ./nft_mappings.json:/home/water/SentinelKarma/nft_mappings.json
+      - ~/.config/solana:/root/.config/solana:ro
+    environment:
+      SOLANA_RPC_URL: "http://host.docker.internal:8899"
+    network_mode: host
 
   web:
     build: ./app
@@ -116,9 +134,13 @@ services:
       NODE_ENV: production
       REACT_APP_API_URL: "${API_URL:-http://localhost:9000}"
       REACT_APP_WS_URL: "${WS_URL:-ws://localhost:9001}"
+    volumes:
+      - ./nft_mappings.json:/usr/share/nginx/html/nft_mappings.json:ro
+      - ./data/malicious_logs:/usr/share/nginx/html/data/malicious_logs:ro
     depends_on:
       - mosquitto
       - log-server
+      - nft-sync
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
       interval: 30s

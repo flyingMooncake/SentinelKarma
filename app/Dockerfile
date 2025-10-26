@@ -25,6 +25,9 @@ COPY --from=builder /app/build /usr/share/nginx/html
 # Copy nginx config
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
+# Create volume mount point for nft_mappings.json
+RUN mkdir -p /usr/share/nginx/html/data
+
 # Expose port
 EXPOSE 3000
 

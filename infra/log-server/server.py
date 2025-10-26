@@ -41,15 +41,22 @@ class UploadResponse(BaseModel):
     size: int
 
 
+class TransferRequest(BaseModel):
+    recipient: str
+    amount: float
+
+
 def load_authorized_peers():
     """Load authorized peers from file (synced from blockchain)"""
-    if os.path.exists(AUTHORIZED_PEERS_FILE):
+    if os.path.exists(AUTHORIZED_PEERS_FILE) and os.path.isfile(AUTHORIZED_PEERS_FILE):
         with open(AUTHORIZED_PEERS_FILE, 'r') as f:
             for line in f:
                 pubkey = line.strip()
                 if pubkey and not pubkey.startswith('#'):
                     AUTHORIZED_PEERS.add(pubkey)
-    print(f"[SERVER] Loaded {len(AUTHORIZED_PEERS)} authorized peers")
+        print(f"[SERVER] Loaded {len(AUTHORIZED_PEERS)} authorized peers")
+    else:
+        print(f"[SERVER] No authorized peers file found (testing mode enabled)")
 
 
 def verify_signature(message: bytes, signature_str: str, pubkey_str: str) -> bool:
@@ -265,6 +272,54 @@ async def get_metadata(log_id: str):
         return json.load(f)
 
 
+@app.get("/view_log/{log_id}")
+async def view_log(log_id: str):
+    """View log content (public, no auth required)"""
+    log_path = os.path.join(LOGS_DIR, f"{log_id}.log")
+    if not os.path.exists(log_path):
+        raise HTTPException(status_code=404, detail="Log not found")
+    
+    try:
+        with open(log_path, 'rb') as f:
+            content = f.read()
+        
+        # Try to decode as text
+        try:
+            text = content.decode('utf-8')
+            # Try to parse as JSON
+            try:
+                return json.loads(text)
+            except:
+                return {"content": text}
+        except:
+            return {"content": content.hex(), "encoding": "hex"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error reading log: {e}")
+
+
+@app.get("/recent_logs")
+async def get_recent_logs(minutes: int = 60):
+    """Get recent logs metadata (public endpoint)"""
+    cutoff_time = int(time.time()) - (minutes * 60)
+    
+    recent_logs = []
+    for filename in os.listdir(LOGS_DIR):
+        if filename.endswith('.meta'):
+            filepath = os.path.join(LOGS_DIR, filename)
+            try:
+                with open(filepath, 'r') as f:
+                    metadata = json.load(f)
+                    if metadata.get('timestamp', 0) > cutoff_time:
+                        recent_logs.append(metadata)
+            except:
+                continue
+    
+    # Sort by timestamp (newest first)
+    recent_logs.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
+    
+    return {"logs": recent_logs, "count": len(recent_logs)}
+
+
 @app.get("/stats")
 async def get_stats():
     """Get server statistics"""
@@ -285,6 +340,107 @@ async def get_stats():
             k[:8] + "...": v for k, v in list(bandwidth_usage.items())[:10]
         }
     }
+
+
+@app.get("/contract_data")
+async def get_contract_data():
+    """Get all contract data files with fraudulent IPs"""
+    contract_dir = os.getenv("CONTRACT_DIR", "/data/contract_data")
+    
+    if not os.path.exists(contract_dir):
+        return {"files": []}
+    
+    files = []
+    for filename in sorted(os.listdir(contract_dir), reverse=True):
+        if filename.startswith('cd_'):
+            filepath = os.path.join(contract_dir, filename)
+            try:
+                with open(filepath, 'r') as f:
+                    data = json.load(f)
+                    files.append({
+                        "filename": filename,
+                        "timestamp": data.get("t", 0),
+                        "count": data.get("cnt", 0),
+                        "entries": data.get("ent", [])
+                    })
+            except Exception as e:
+                print(f"Error reading {filename}: {e}")
+    
+    return {"files": files[:100]}  # Return last 100 files
+
+
+@app.get("/contract_data/{filename}")
+async def get_contract_data_file(filename: str):
+    """Get specific contract data file"""
+    contract_dir = os.getenv("CONTRACT_DIR", "/data/contract_data")
+    filepath = os.path.join(contract_dir, filename)
+    
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="Contract data file not found")
+    
+    try:
+        with open(filepath, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error reading file: {e}")
+
+
+@app.post("/transfer_seka")
+async def transfer_seka(request: TransferRequest):
+    """Transfer SEKA tokens to recipient"""
+    import subprocess
+    
+    recipient = request.recipient
+    amount = request.amount
+    
+    try:
+        print(f"[TRANSFER] Sending {amount} SEKA to {recipient}")
+        
+        # Call spl-token on host via docker exec (reverse approach)
+        # Since we're in container, we need to call host's spl-token
+        # Use bash to execute on host
+        script_path = "/app/scripts/transfer_seka.sh"
+        
+        # Make script executable
+        os.chmod(script_path, 0o755)
+        
+        result = subprocess.run(
+            ["bash", script_path, recipient, str(amount)],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env={**os.environ, "PATH": "/usr/local/bin:/usr/bin:/bin:/root/.local/share/solana/install/active_release/bin"}
+        )
+        
+        if result.returncode == 0:
+            # Parse JSON response
+            try:
+                response = json.loads(result.stdout)
+                if response.get("success"):
+                    print(f"[TRANSFER] Success! Signature: {response.get('signature')}")
+                    return {
+                        "success": True,
+                        "signature": response.get("signature"),
+                        "amount": amount,
+                        "recipient": recipient,
+                        "message": f"Successfully sent {amount} SEKA"
+                    }
+                else:
+                    error_msg = response.get("error", "Unknown error")
+                    print(f"[TRANSFER] Failed: {error_msg}")
+                    raise HTTPException(status_code=400, detail=error_msg)
+            except json.JSONDecodeError:
+                raise HTTPException(status_code=500, detail="Invalid response from transfer script")
+        else:
+            error_msg = result.stderr or result.stdout
+            print(f"[TRANSFER] Failed: {error_msg}")
+            raise HTTPException(status_code=400, detail=error_msg)
+            
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=408, detail="Transfer timeout")
+    except Exception as e:
+        print(f"[TRANSFER] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":

@@ -1,3 +1,6 @@
+[toolchain]
+anchor_version = "0.30.1"
+
 [programs.localnet]
 sentinel = "Da3fi9D86CM262Xbu8nCwiJRNc6wEgSoKH1cw3p1MA8V"
 

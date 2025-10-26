@@ -1,17 +1,16 @@
 import { useState, useEffect } from 'react';
-import { AlertTriangle, Shield, Users, Code, BarChart3, Download, Bell, Settings } from 'lucide-react';
+import { AlertTriangle, Shield, Users, Code, BarChart3, Download, Bell, Settings, Home, Coins } from 'lucide-react';
 import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarProvider } from './components/ui/sidebar';
 import { Button } from './components/ui/button';
 import { Badge } from './components/ui/badge';
-import { AlertsPanel } from './components/AlertsPanel';
-import { PeerRiskPanel } from './components/PeerRiskPanel';
-import { ProgramRiskPanel } from './components/ProgramRiskPanel';
-import { ReportersPanel } from './components/ReportersPanel';
-import { AnalyticsPanel } from './components/AnalyticsPanel';
-import { ExportPanel } from './components/ExportPanel';
+import { DashboardOverview } from './components/DashboardOverview';
+import { NFTsPanel } from './components/NFTsPanel';
+import { LiveAlertsPanel } from './components/LiveAlertsPanel';
+import { FraudulentIPsPanel } from './components/FraudulentIPsPanel';
+import { SystemInfoPanel } from './components/SystemInfoPanel';
 
 export default function App() {
-  const [activePanel, setActivePanel] = useState('alerts');
+  const [activePanel, setActivePanel] = useState('dashboard');
   const [alertCount, setAlertCount] = useState(3);
 
   // Simulate real-time alert updates
@@ -25,23 +24,21 @@ export default function App() {
   }, []);
 
   const menuItems = [
-    { id: 'alerts', label: 'Live Alerts', icon: AlertTriangle, badge: alertCount },
-    { id: 'peers', label: 'Peer Risk', icon: Shield },
-    { id: 'programs', label: 'Program Risk', icon: Code },
-    { id: 'reporters', label: 'Reporters', icon: Users },
-    { id: 'analytics', label: 'Analytics', icon: BarChart3 },
-    { id: 'export', label: 'Export', icon: Download }
+    { id: 'dashboard', label: 'Dashboard', icon: Home },
+    { id: 'nfts', label: 'Network NFTs', icon: Coins },
+    { id: 'alerts', label: 'Live Alerts', icon: AlertTriangle },
+    { id: 'fraudips', label: 'Fraudulent IPs', icon: Shield },
+    { id: 'system', label: 'System Info', icon: Settings },
   ];
 
   const renderPanel = () => {
     switch (activePanel) {
-      case 'alerts': return <AlertsPanel />;
-      case 'peers': return <PeerRiskPanel />;
-      case 'programs': return <ProgramRiskPanel />;
-      case 'reporters': return <ReportersPanel />;
-      case 'analytics': return <AnalyticsPanel />;
-      case 'export': return <ExportPanel />;
-      default: return <AlertsPanel />;
+      case 'dashboard': return <DashboardOverview />;
+      case 'nfts': return <NFTsPanel />;
+      case 'alerts': return <LiveAlertsPanel />;
+      case 'fraudips': return <FraudulentIPsPanel />;
+      case 'system': return <SystemInfoPanel />;
+      default: return <DashboardOverview />;
     }
   };
 

@@ -55,6 +55,18 @@
     },
     server: {
       port: 3000,
-      open: true,
+      host: '0.0.0.0',
+      proxy: {
+        '/api/logs': {
+          target: 'http://log-server:9000',
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/api\/logs/, '')
+        },
+        '/api/solana': {
+          target: 'http://host.docker.internal:8899',
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/api\/solana/, '')
+        }
+      }
     },
   });
